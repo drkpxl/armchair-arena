@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Armchair Arena — Analytics</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+  <header>
+    <h1>🛋️ Armchair Arena</h1>
+    <nav>
+      <a href="/">Compare</a>
+      <a href="/analytics" class="active">Analytics</a>
+    </nav>
+  </header>
+  <main>
+    <div class="toolbar">
+      <a href="/api/export.csv"><button class="secondary">⬇ Runs CSV</button></a>
+      <a href="/api/export_sources.csv"><button class="secondary">⬇ Sources CSV</button></a>
+      <span class="hint" id="summary"></span>
+    </div>
+
+    <h2 class="section-title">Leaderboards</h2>
+    <div class="chart-grid">
+      <div class="chart-box"><h3>Avg rating (1–5) — higher is better</h3><canvas id="c_rating"></canvas></div>
+      <div class="chart-box"><h3>Avg total tokens — lower is better</h3><canvas id="c_tokens"></canvas></div>
+      <div class="chart-box"><h3>Avg speed (tokens/sec) — higher is better</h3><canvas id="c_speed"></canvas></div>
+      <div class="chart-box"><h3>Avg wall-clock (s) — lower is better</h3><canvas id="c_wall"></canvas></div>
+      <div class="chart-box"><h3>Avg source credibility (% of cited sources you marked credible)</h3><canvas id="c_cred"></canvas></div>
+      <div class="chart-box"><h3>Quality vs cost (rating vs tokens)</h3><canvas id="c_scatter"></canvas></div>
+    </div>
+
+    <h2 class="section-title">All runs</h2>
+    <table id="runs"><thead></thead><tbody></tbody></table>
+  </main>
+  <script src="/static/analytics.js"></script>
+</body>
+</html>

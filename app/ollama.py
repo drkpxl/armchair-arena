@@ -1,0 +1,108 @@
+"""Native Ollama /api/chat client.
+
+The native API (not the OpenAI-compatible /v1 surface) is used because it returns the
+token counts and timing fields we evaluate on: prompt_eval_count, eval_count,
+total_duration, eval_duration (durations in nanoseconds).
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from datetime import datetime, timedelta, timezone
+
+import httpx
+
+from .config import (
+    EXCLUDE_MODEL_PATTERNS,
+    MAX_MODEL_AGE_DAYS,
+    OLLAMA_API_KEY,
+    OLLAMA_HOST,
+)
+
+
+def _headers() -> dict[str, str]:
+    if OLLAMA_API_KEY:
+        return {"Authorization": f"Bearer {OLLAMA_API_KEY}"}
+    return {}
+
+
+def _fresh_enough(modified_at: str | None, cutoff: datetime) -> bool:
+    """True if the model is newer than the cutoff. Unknown/unparseable dates are kept."""
+    if not modified_at:
+        return True
+    try:
+        dt = datetime.fromisoformat(modified_at.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    return dt >= cutoff
+
+
+def _human_count(n: object) -> str | None:
+    """8000000000 -> '8B', 32768 -> '32K', 1048576 -> '1M'."""
+    try:
+        v = int(n)
+    except (TypeError, ValueError):
+        return str(n) if n else None
+    for div, suffix in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")):
+        if v >= div:
+            q = v / div
+            return (f"{q:.1f}".rstrip("0").rstrip(".")) + suffix
+    return str(v)
+
+
+async def show(client: httpx.AsyncClient, model: str) -> dict:
+    """Compact metadata for one model from /api/show (for the hover tooltip)."""
+    resp = await client.post(
+        f"{OLLAMA_HOST}/api/show", json={"model": model}, headers=_headers()
+    )
+    resp.raise_for_status()
+    d = resp.json()
+    details = d.get("details") or {}
+    mi = d.get("model_info") or {}
+    ctx = next((v for k, v in mi.items() if k.endswith("context_length")), None)
+    return {
+        "name": model,
+        "architecture": mi.get("general.architecture") or details.get("family"),
+        "parameter_size": _human_count(
+            mi.get("general.parameter_count") or details.get("parameter_size")
+        ),
+        "context": _human_count(ctx),
+        "capabilities": d.get("capabilities") or [],
+        "quantization": details.get("quantization_level") or None,
+        "modified_at": (d.get("modified_at") or "")[:10] or None,
+    }
+
+
+async def list_models(client: httpx.AsyncClient) -> list[str]:
+    """Available model names from /api/tags, filtered by MAX_MODEL_AGE_DAYS."""
+    resp = await client.get(f"{OLLAMA_HOST}/api/tags", headers=_headers())
+    resp.raise_for_status()
+    models = resp.json().get("models", [])
+    if MAX_MODEL_AGE_DAYS > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=MAX_MODEL_AGE_DAYS)
+        models = [m for m in models if _fresh_enough(m.get("modified_at"), cutoff)]
+    names = [m["name"] for m in models]
+    if EXCLUDE_MODEL_PATTERNS:
+        names = [
+            n for n in names
+            if not any(p in n.lower() for p in EXCLUDE_MODEL_PATTERNS)
+        ]
+    return sorted(names)
+
+
+async def chat(
+    client: httpx.AsyncClient,
+    model: str,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """One non-streaming /api/chat turn. Returns the raw response dict."""
+    payload = {
+        "model": model,
+        "messages": messages,
+        "tools": tools,
+        "stream": False,
+    }
+    resp = await client.post(f"{OLLAMA_HOST}/api/chat", json=payload, headers=_headers())
+    resp.raise_for_status()
+    return resp.json()

@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets & local config (keep .env.example)
+.env
+
+# Local database (created at runtime)
+data/*.db
+
+# OS / editor cruft
+.DS_Store
+*.swp
+.idea/
+.vscode/
