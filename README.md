@@ -45,9 +45,11 @@ sortable run table (with CSV export):
 - **Quality voting** — rate each answer 1–5 stars.
 - **Source credibility** — see every URL a model pulled in (search results + scraped pages) and
   vote each credible yes/no.
-- **Blended analytics** — leaderboards averaged across *all* your tests: avg rating, avg tokens,
-  avg speed, avg wall-clock, and avg source-credibility per model. Quality-vs-cost scatter, a
-  sortable run table, and CSV exports (runs + sources).
+- **Blended analytics + best-tradeoff finder** — a per-model summary table and a Pareto
+  **efficiency frontier** that flags the models no other beats on quality, token cost, *and*
+  speed at once (objective, no weighting) — so you know which are actually worth considering.
+  Plus single-metric leaderboards, a quality-vs-cost scatter (frontier highlighted), a sortable
+  run table, and CSV exports (runs + sources), all averaged across *all* your tests.
 - **Model picker with tooltips** — hover any model to see params, architecture, context window,
   capabilities (tools/vision/thinking), and quantization. Stale models (not updated in N months)
   are filtered out.

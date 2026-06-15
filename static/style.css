@@ -156,3 +156,8 @@ tr:hover td { background: var(--panel-2); }
 .scatter-wrap { position: relative; height: 460px; }
 .spinner { color: var(--muted); }
 .section-title { font-family: var(--pixel); margin: 32px 0 14px; font-size: 13px; color: var(--accent); text-shadow: 2px 2px 0 var(--accent2); }
+
+.frontier-note { background: var(--panel); border: 2px solid var(--accent); border-radius: 0; padding: 12px 14px; margin-bottom: 14px; box-shadow: var(--shadow); font-size: 13px; }
+.frontier-note .chip { display: inline-block; background: var(--accent); color: var(--ink); font-weight: 700; padding: 2px 8px; margin: 2px 4px 2px 0; text-transform: uppercase; font-size: 11px; }
+.models-table tr.frontier td { background: rgba(255, 200, 61, 0.08); }
+.models-table tr.frontier td:first-child { color: var(--accent); font-weight: 700; }
