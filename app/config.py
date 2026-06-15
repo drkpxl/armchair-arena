@@ -27,6 +27,15 @@ EXCLUDE_MODEL_PATTERNS = [
     if p.strip()
 ]
 
+# Hide specific models by EXACT name (case-insensitive), e.g. sunset/retired models.
+# Use this (not EXCLUDE_MODEL_PATTERNS) for exact versions — a substring like "minimax-m2"
+# would also catch minimax-m2.1/2.5/2.7.
+EXCLUDE_MODELS = {
+    m.strip().lower()
+    for m in os.getenv("EXCLUDE_MODELS", "").split(",")
+    if m.strip()
+}
+
 # Free-text locale/region context injected into the system prompt (units, "near me",
 # date format, spelling). Empty = omitted.
 USER_LOCALE = os.getenv("USER_LOCALE", "").strip()

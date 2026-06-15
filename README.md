@@ -118,6 +118,7 @@ success by polling `/api/health`.
 | `PORT` | `8090` | Port to serve on. |
 | `MAX_MODEL_AGE_DAYS` | `365` | Hide models not updated within this many days (`0` = show all). |
 | `EXCLUDE_MODEL_PATTERNS` | `coder,code,devstral` | Hide models whose name contains any of these substrings (drops coding/dev-tuned models). Empty = show all. |
+| `EXCLUDE_MODELS` | — | Hide specific models by **exact** name (comma-separated, case-insensitive) — e.g. retired/sunset models. Use this for exact versions; a substring would over-match. |
 | `USER_LOCALE` | — | Optional region/units context added to every system prompt (e.g. "The user is in the US (Mountain Time); prefer °F, US spelling, MM/DD/YYYY."). Empty = omitted. |
 | `MAX_TOOL_ITERS` | `5` | Max tool-call rounds before forcing a final answer. |
 | `SEARCH_SNIPPET_CHARS` | `1500` | Truncation cap per search result. |

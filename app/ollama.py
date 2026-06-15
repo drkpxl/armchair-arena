@@ -14,6 +14,7 @@ import httpx
 
 from .config import (
     EXCLUDE_MODEL_PATTERNS,
+    EXCLUDE_MODELS,
     MAX_MODEL_AGE_DAYS,
     OLLAMA_API_KEY,
     OLLAMA_HOST,
@@ -82,6 +83,8 @@ async def list_models(client: httpx.AsyncClient) -> list[str]:
         cutoff = datetime.now(timezone.utc) - timedelta(days=MAX_MODEL_AGE_DAYS)
         models = [m for m in models if _fresh_enough(m.get("modified_at"), cutoff)]
     names = [m["name"] for m in models]
+    if EXCLUDE_MODELS:
+        names = [n for n in names if n.lower() not in EXCLUDE_MODELS]
     if EXCLUDE_MODEL_PATTERNS:
         names = [
             n for n in names
