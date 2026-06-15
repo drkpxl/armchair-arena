@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 
 from . import db, firecrawl, ollama, tools
-from .config import MAX_TOOL_ITERS, REQUEST_TIMEOUT
+from .config import MAX_TOOL_ITERS, REQUEST_TIMEOUT, USER_LOCALE
 
 # Light, neutral system prompt: gives every model the same framing and nudges it to
 # use the web tools when it needs current/factual info, without biasing answer quality.
@@ -21,17 +21,20 @@ from .config import MAX_TOOL_ITERS, REQUEST_TIMEOUT
 def _system_prompt(enable_tools: bool) -> str:
     today = datetime.now().strftime("%A, %B %-d, %Y")
     parts = [
-        "You are a helpful assistant being evaluated on non-coding tasks (research, "
+        "You are a helpful assistant being evaluated (research, "
         "summarization, advice, general knowledge).",
         f"Today's date is {today}. Interpret relative time references such as "
         '"this year", "current", "now", "upcoming", or "latest" relative to today\'s '
         "date — do not assume an earlier year from your training data.",
     ]
+    if USER_LOCALE:
+        parts.append(USER_LOCALE)
     if enable_tools:
         parts.append(
             "You have web tools (web_search, scrape_url). Use them when the question needs "
             "current, factual, or external information, and include the relevant current "
-            "year/date in your search queries; otherwise answer directly."
+            "year/date in your search queries; otherwise answer directly. When your answer "
+            "draws on web results, cite the specific source URLs you relied on at the end."
         )
     parts.append("Be accurate and concise.")
     return " ".join(parts)

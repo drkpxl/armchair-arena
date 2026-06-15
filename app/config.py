@@ -29,6 +29,10 @@ EXCLUDE_MODEL_PATTERNS = [
     if p.strip()
 ]
 
+# Free-text locale/region context injected into the system prompt (units, "near me",
+# date format, spelling). Empty = omitted.
+USER_LOCALE = os.getenv("USER_LOCALE", "").strip()
+
 MAX_TOOL_ITERS = int(os.getenv("MAX_TOOL_ITERS", "5"))
 SEARCH_SNIPPET_CHARS = int(os.getenv("SEARCH_SNIPPET_CHARS", "1500"))
 SCRAPE_CHARS = int(os.getenv("SCRAPE_CHARS", "6000"))

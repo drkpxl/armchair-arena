@@ -52,6 +52,16 @@ async function loadCharts() {
       })),
     },
     options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "top", labels: { boxWidth: 14, padding: 10 } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: rating ${ctx.parsed.y}, ${ctx.parsed.x.toLocaleString()} tokens`,
+          },
+        },
+      },
       scales: {
         x: { title: { display: true, text: "avg total tokens" } },
         y: { title: { display: true, text: "avg rating" }, min: 0, max: 5 },
