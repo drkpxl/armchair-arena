@@ -7,6 +7,7 @@ block the event loop while models run concurrently.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
 from typing import Any
 from urllib.parse import urlparse
 
@@ -52,15 +53,21 @@ _RUN_COLS = [
 ]
 
 
-def _connect() -> sqlite3.Connection:
+@contextmanager
+def _db():
+    """A connection that commits on success and is always closed (no leak)."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        with conn:  # commit / rollback
+            yield conn
+    finally:
+        conn.close()
 
 
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with _connect() as conn:
+    with _db() as conn:
         conn.executescript(SCHEMA)
 
 
@@ -68,7 +75,7 @@ def insert_run(result: dict[str, Any]) -> int:
     placeholders = ", ".join("?" for _ in _RUN_COLS)
     cols = ", ".join(_RUN_COLS)
     values = [result.get(c) for c in _RUN_COLS]
-    with _connect() as conn:
+    with _db() as conn:
         cur = conn.execute(
             f"INSERT INTO runs ({cols}) VALUES ({placeholders})", values
         )
@@ -78,7 +85,7 @@ def insert_run(result: dict[str, Any]) -> int:
 def insert_sources(run_id: int, ts: str, sources: list[dict[str, str]]) -> list[dict[str, Any]]:
     """Persist the source URLs for a run; return rows with their new ids."""
     out: list[dict[str, Any]] = []
-    with _connect() as conn:
+    with _db() as conn:
         for s in sources:
             url = s["url"]
             domain = urlparse(url).netloc or None
@@ -95,7 +102,7 @@ def insert_sources(run_id: int, ts: str, sources: list[dict[str, str]]) -> list[
 
 
 def set_source_credible(source_id: int, credible: bool) -> bool:
-    with _connect() as conn:
+    with _db() as conn:
         cur = conn.execute(
             "UPDATE sources SET credible = ? WHERE id = ?",
             (1 if credible else 0, source_id),
@@ -104,7 +111,7 @@ def set_source_credible(source_id: int, credible: bool) -> bool:
 
 
 def all_sources() -> list[dict[str, Any]]:
-    with _connect() as conn:
+    with _db() as conn:
         rows = conn.execute(
             "SELECT s.*, r.model, r.question FROM sources s "
             "JOIN runs r ON r.id = s.run_id ORDER BY s.id DESC"
@@ -113,7 +120,7 @@ def all_sources() -> list[dict[str, Any]]:
 
 
 def set_rating(run_id: int, rating: int) -> bool:
-    with _connect() as conn:
+    with _db() as conn:
         cur = conn.execute(
             "UPDATE runs SET rating = ? WHERE id = ?", (rating, run_id)
         )
@@ -142,11 +149,11 @@ def analytics() -> list[dict[str, Any]]:
       GROUP BY runs.model
       ORDER BY avg_rating DESC NULLS LAST, avg_total_tokens ASC
     """
-    with _connect() as conn:
+    with _db() as conn:
         return [dict(r) for r in conn.execute(sql).fetchall()]
 
 
 def all_runs() -> list[dict[str, Any]]:
-    with _connect() as conn:
+    with _db() as conn:
         rows = conn.execute("SELECT * FROM runs ORDER BY id DESC").fetchall()
         return [dict(r) for r in rows]

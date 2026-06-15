@@ -13,10 +13,8 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
 FIRECRAWL_URL = os.getenv("FIRECRAWL_URL", "http://localhost:3002").rstrip("/")
 
-BIND_HOST = os.getenv("BIND_HOST", "0.0.0.0")
+BIND_HOST = os.getenv("BIND_HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8090"))
-
-CLOUD_MODELS = [m.strip() for m in os.getenv("CLOUD_MODELS", "").split(",") if m.strip()]
 
 # Hide models whose last update is older than this many days (0 = show all).
 MAX_MODEL_AGE_DAYS = int(os.getenv("MAX_MODEL_AGE_DAYS", "365"))

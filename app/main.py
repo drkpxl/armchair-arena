@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -12,14 +13,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import db, firecrawl, ollama, runner
-from .config import FIRECRAWL_URL, OLLAMA_HOST, STATIC_DIR
-
-app = FastAPI(title="Armchair Arena")
+from .config import OLLAMA_HOST, STATIC_DIR
 
 
-@app.on_event("startup")
-def _startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     db.init_db()
+    yield
+
+
+app = FastAPI(title="Armchair Arena", lifespan=lifespan)
 
 
 class AskRequest(BaseModel):

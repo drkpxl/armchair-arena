@@ -19,7 +19,8 @@ from .config import MAX_TOOL_ITERS, REQUEST_TIMEOUT, USER_LOCALE
 # "this year" resolve correctly — models have no built-in clock and otherwise default to
 # their training cutoff.
 def _system_prompt(enable_tools: bool) -> str:
-    today = datetime.now().strftime("%A, %B %-d, %Y")
+    now = datetime.now()
+    today = f"{now:%A, %B} {now.day}, {now.year}"  # portable (no %-d, which fails on Windows)
     parts = [
         "You are a helpful assistant being evaluated (research, "
         "summarization, advice, general knowledge).",
@@ -135,6 +136,15 @@ async def run_model(
                 error = f"Hit MAX_TOOL_ITERS ({MAX_TOOL_ITERS}); forced answer was empty."
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
+
+    # Explain the silent-empty case (e.g. gpt-oss on Ollama Cloud emits only hidden
+    # channels) instead of showing a blank card with no reason.
+    if not answer and not error:
+        error = (
+            f"Model generated {completion_tokens} tokens but returned no displayable "
+            "content — some Ollama Cloud reasoning models (e.g. gpt-oss) expose only "
+            "hidden reasoning channels."
+        )
 
     wall_ms = round((time.perf_counter() - wall_start) * 1000, 1)
     # Prefer eval_duration; fall back to total_duration when the host omits it.
