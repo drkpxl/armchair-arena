@@ -9,6 +9,12 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 
+
+def _csv_lower(name: str, default: str = "") -> list[str]:
+    """A comma-separated env var → list of stripped, lowercased, non-empty values."""
+    return [v.strip().lower() for v in os.getenv(name, default).split(",") if v.strip()]
+
+
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
 FIRECRAWL_URL = os.getenv("FIRECRAWL_URL", "http://localhost:3002").rstrip("/")
@@ -21,20 +27,12 @@ MAX_MODEL_AGE_DAYS = int(os.getenv("MAX_MODEL_AGE_DAYS", "365"))
 
 # Hide models whose name contains any of these substrings (case-insensitive).
 # Default drops coding/developer-tuned models, which aren't this tool's use case.
-EXCLUDE_MODEL_PATTERNS = [
-    p.strip().lower()
-    for p in os.getenv("EXCLUDE_MODEL_PATTERNS", "coder,code,devstral").split(",")
-    if p.strip()
-]
+EXCLUDE_MODEL_PATTERNS = _csv_lower("EXCLUDE_MODEL_PATTERNS", "coder,code,devstral")
 
 # Hide specific models by EXACT name (case-insensitive), e.g. sunset/retired models.
 # Use this (not EXCLUDE_MODEL_PATTERNS) for exact versions — a substring like "minimax-m2"
 # would also catch minimax-m2.1/2.5/2.7.
-EXCLUDE_MODELS = {
-    m.strip().lower()
-    for m in os.getenv("EXCLUDE_MODELS", "").split(",")
-    if m.strip()
-}
+EXCLUDE_MODELS = set(_csv_lower("EXCLUDE_MODELS"))
 
 # Free-text locale/region context injected into the system prompt (units, "near me",
 # date format, spelling). Empty = omitted.
