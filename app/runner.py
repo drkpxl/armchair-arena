@@ -49,6 +49,21 @@ def _ns_to_ms(ns: Any) -> float:
     return round((ns or 0) / 1e6, 1)
 
 
+def _usage(resp: dict[str, Any]) -> tuple[int, int, int, int]:
+    """(prompt_eval_count, eval_count, total_duration, eval_duration), each defaulting to 0."""
+    return (
+        resp.get("prompt_eval_count") or 0,
+        resp.get("eval_count") or 0,
+        resp.get("total_duration") or 0,
+        resp.get("eval_duration") or 0,
+    )
+
+
+def _final_answer(msg: dict[str, Any]) -> str:
+    """Final answer text; reasoning models may leave content empty and use `thinking`."""
+    return (msg.get("content") or "").strip() or (msg.get("thinking") or "")
+
+
 async def run_model(
     question: str,
     model: str,
@@ -78,17 +93,17 @@ async def run_model(
     try:
         for _ in range(MAX_TOOL_ITERS):
             resp = await ollama.chat(ollama_client, model, messages, tool_schemas)
-            prompt_tokens += resp.get("prompt_eval_count") or 0
-            completion_tokens += resp.get("eval_count") or 0
-            total_duration_ns += resp.get("total_duration") or 0
-            eval_duration_ns += resp.get("eval_duration") or 0
+            p, c, td, ed = _usage(resp)
+            prompt_tokens += p
+            completion_tokens += c
+            total_duration_ns += td
+            eval_duration_ns += ed
 
             msg = resp.get("message", {}) or {}
             messages.append(msg)
             calls = msg.get("tool_calls") or []
             if not calls:
-                # Reasoning models may leave content empty and put text in `thinking`.
-                answer = (msg.get("content") or "").strip() or (msg.get("thinking") or "")
+                answer = _final_answer(msg)
                 break
 
             for call in calls:
@@ -126,25 +141,29 @@ async def run_model(
                 ),
             })
             resp = await ollama.chat(ollama_client, model, messages, [])
-            prompt_tokens += resp.get("prompt_eval_count") or 0
-            completion_tokens += resp.get("eval_count") or 0
-            total_duration_ns += resp.get("total_duration") or 0
-            eval_duration_ns += resp.get("eval_duration") or 0
-            fmsg = resp.get("message", {}) or {}
-            answer = (fmsg.get("content") or "").strip() or (fmsg.get("thinking") or "")
+            p, c, td, ed = _usage(resp)
+            prompt_tokens += p
+            completion_tokens += c
+            total_duration_ns += td
+            eval_duration_ns += ed
+            answer = _final_answer(resp.get("message", {}) or {})
             if not answer:
                 error = f"Hit MAX_TOOL_ITERS ({MAX_TOOL_ITERS}); forced answer was empty."
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
 
-    # Explain the silent-empty case (e.g. gpt-oss on Ollama Cloud emits only hidden
-    # channels) instead of showing a blank card with no reason.
+    # Explain an empty answer instead of showing a blank card with no reason. Keep it
+    # accurate: report the actual token count and only cite hidden-channel models as a
+    # likely (not definitive) cause when tokens were actually generated.
     if not answer and not error:
-        error = (
-            f"Model generated {completion_tokens} tokens but returned no displayable "
-            "content — some Ollama Cloud reasoning models (e.g. gpt-oss) expose only "
-            "hidden reasoning channels."
-        )
+        if completion_tokens > 0:
+            error = (
+                f"{model} generated {completion_tokens} tokens but returned no displayable "
+                "content (some reasoning models, e.g. gpt-oss on Ollama Cloud, expose only "
+                "hidden channels)."
+            )
+        else:
+            error = f"{model} returned an empty response (no content)."
 
     wall_ms = round((time.perf_counter() - wall_start) * 1000, 1)
     # Prefer eval_duration; fall back to total_duration when the host omits it.
@@ -168,12 +187,19 @@ async def run_model(
         "tool_trace": json.dumps(tool_trace),
         "error": error,
     }
-    run_id = await asyncio.to_thread(db.insert_run, result)
-    result["id"] = run_id
-    src_list = [{"url": u, "role": r} for u, r in sources_map.items()]
-    result["sources"] = await asyncio.to_thread(
-        db.insert_sources, run_id, result["ts"], src_list
-    )
+    # Persist this run. A DB failure here must not sink the whole batch (asyncio.gather),
+    # so degrade this one card to unsaved rather than raising.
+    try:
+        run_id = await asyncio.to_thread(db.insert_run, result)
+        result["id"] = run_id
+        src_list = [{"url": u, "role": r} for u, r in sources_map.items()]
+        result["sources"] = await asyncio.to_thread(
+            db.insert_sources, run_id, result["ts"], src_list
+        )
+    except Exception as exc:
+        result["id"] = None
+        result["sources"] = []
+        result["error"] = f"{result.get('error') or ''} [not saved: {exc}]".strip()
     return result
 
 

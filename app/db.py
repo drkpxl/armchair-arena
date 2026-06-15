@@ -56,8 +56,9 @@ _RUN_COLS = [
 @contextmanager
 def _db():
     """A connection that commits on success and is always closed (no leak)."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)  # wait, don't error, on a busy lock
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")  # concurrent readers + one writer
     try:
         with conn:  # commit / rollback
             yield conn
