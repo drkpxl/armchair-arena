@@ -63,7 +63,9 @@ curl -s http://127.0.0.1:8090/api/health
 Success looks like:
 
 ```json
-{"ollama":{"ok":true,"host":"...","models":34},"firecrawl":{"ok":true,...},"web_tools":true,"ok":true}
+{"ollama":{"ok":true,"host":"...","models":34},
+ "firecrawl":{"url":"...","reachable":true,"search_ok":true,"results":3,"note":null},
+ "web_tools":true,"ok":true}
 ```
 
 - `ollama.ok: true` → models load; setup is functional. Confirm `models > 0`.

@@ -36,7 +36,11 @@ sortable run table (with CSV export):
 - **Real metrics** — tokens (prompt/completion), tokens/sec, wall-clock, and tool-call count,
   pulled from Ollama's native `/api/chat` timing fields.
 - **Consistent tool use** — identical `web_search` + `scrape_url` tools (Firecrawl) offered to
-  every model with `tool_choice=auto`; the model decides when to use them.
+  every model with `tool_choice=auto`; the model decides when to use them. Degrades gracefully:
+  if Firecrawl search is down, models answer from their own knowledge (and `/api/health` says so).
+- **Fair, current prompt** — every model gets the same system prompt with today's date injected
+  (so "this year"/"latest" resolve correctly), optional locale/units, and a nudge to cite the
+  source URLs it used.
 - **Markdown answers** rendered properly.
 - **Quality voting** — rate each answer 1–5 stars.
 - **Source credibility** — see every URL a model pulled in (search results + scraped pages) and
@@ -113,6 +117,8 @@ success by polling `/api/health`.
 | `BIND_HOST` | `127.0.0.1` | Bind address. `0.0.0.0` exposes it to your network. |
 | `PORT` | `8090` | Port to serve on. |
 | `MAX_MODEL_AGE_DAYS` | `365` | Hide models not updated within this many days (`0` = show all). |
+| `EXCLUDE_MODEL_PATTERNS` | `coder,code,devstral` | Hide models whose name contains any of these substrings (drops coding/dev-tuned models). Empty = show all. |
+| `USER_LOCALE` | — | Optional region/units context added to every system prompt (e.g. "The user is in the US (Mountain Time); prefer °F, US spelling, MM/DD/YYYY."). Empty = omitted. |
 | `MAX_TOOL_ITERS` | `5` | Max tool-call rounds before forcing a final answer. |
 | `SEARCH_SNIPPET_CHARS` | `1500` | Truncation cap per search result. |
 | `SCRAPE_CHARS` | `6000` | Truncation cap per scraped page. |
@@ -136,7 +142,8 @@ loginctl enable-linger "$USER"   # survive logout/reboot
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/models` | Available models (age-filtered). |
+| `GET` | `/api/health` | Backend status: Ollama + a Firecrawl search canary (`web_tools` = search actually works). |
+| `GET` | `/api/models` | Available models (age- and pattern-filtered). |
 | `GET` | `/api/model_info?name=` | Metadata for one model (tooltip). |
 | `POST` | `/api/ask` | `{question, models[]}` -> run the batch, return answers + metrics + sources. |
 | `POST` | `/api/vote` | `{run_id, rating}` -> 1-5 star rating. |
