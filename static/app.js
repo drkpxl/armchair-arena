@@ -249,8 +249,9 @@ async function checkHealth() {
       box.textContent = `⚠ Can't reach Ollama at ${h.ollama.host}: ${h.ollama.error}. Check OLLAMA_HOST / OLLAMA_API_KEY in .env.`;
       box.hidden = false;
     } else if (!h.web_tools) {
+      const fc = h.firecrawl || {};
       box.className = "health warn";
-      box.textContent = `ℹ Web research tools are off (Firecrawl not reachable at ${h.firecrawl.url}). Models will answer from their own knowledge. See README to enable Firecrawl.`;
+      box.textContent = `ℹ Web research tools are off — ${fc.note || "search unavailable"}${fc.url ? " (" + fc.url + ")" : ""}. Models will answer from their own knowledge. See README to enable Firecrawl.`;
       box.hidden = false;
     }
   } catch { /* health is best-effort */ }

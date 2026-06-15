@@ -47,9 +47,8 @@ async def health() -> dict:
             out["ollama"] = {"ok": True, "host": OLLAMA_HOST, "models": len(models)}
         except Exception as exc:
             out["ollama"] = {"ok": False, "host": OLLAMA_HOST, "error": f"{type(exc).__name__}: {exc}"}
-        web_ok = await firecrawl.available(client)
-        out["firecrawl"] = {"ok": web_ok, "url": FIRECRAWL_URL}
-    out["web_tools"] = out["firecrawl"]["ok"]
+        out["firecrawl"] = await firecrawl.search_health(client)
+    out["web_tools"] = out["firecrawl"]["search_ok"]
     out["ok"] = out["ollama"]["ok"]  # app is usable as long as a model backend works
     return out
 

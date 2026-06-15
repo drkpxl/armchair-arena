@@ -24,6 +24,47 @@ async def available(client: httpx.AsyncClient) -> bool:
         return False
 
 
+async def search_health(client: httpx.AsyncClient) -> dict:
+    """Deeper health check: is search actually returning results? (web tools truly work).
+
+    Reachability alone isn't enough — Firecrawl can be up while its search backend is
+    down/rate-limited and returns empty. Runs a tiny canary query to tell the difference.
+    """
+    out: dict = {"url": FIRECRAWL_URL, "reachable": False, "search_ok": False, "results": 0}
+    if not FIRECRAWL_URL:
+        out["note"] = "FIRECRAWL_URL is empty"
+        return out
+    try:
+        r = await client.get(FIRECRAWL_URL, timeout=5)
+        out["reachable"] = r.status_code < 500
+    except Exception as exc:
+        out["note"] = f"unreachable: {type(exc).__name__}"
+        return out
+    if not out["reachable"]:
+        out["note"] = "root endpoint returned an error"
+        return out
+    # Canary search. The backend is intermittently empty, so retry once before
+    # declaring search down — a single blip shouldn't flip web tools to "off".
+    async def _canary() -> int:
+        resp = await client.post(
+            f"{FIRECRAWL_URL}/v1/search", json={"query": "news today", "limit": 3}, timeout=20
+        )
+        resp.raise_for_status()
+        return len(resp.json().get("data") or [])
+
+    try:
+        n = await _canary()
+        if n == 0:
+            n = await _canary()
+        out["results"] = n
+        out["search_ok"] = n > 0
+        if n == 0:
+            out["note"] = "reachable but search returned no results twice (backend down or rate-limited)"
+    except Exception as exc:
+        out["note"] = f"search error: {type(exc).__name__}: {exc}"
+    return out
+
+
 def _truncate(text: str | None, limit: int) -> str:
     text = text or ""
     if len(text) <= limit:
