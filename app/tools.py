@@ -16,7 +16,8 @@ TOOLS: list[dict[str, Any]] = [
             "name": "web_search",
             "description": (
                 "Search the web for current or factual information. Returns ranked "
-                "results with titles, URLs, and markdown snippets."
+                "results with titles, URLs, and short snippets. Follow up with scrape_url "
+                "on the most relevant results to read them in full before answering."
             ),
             "parameters": {
                 "type": "object",
@@ -62,4 +63,4 @@ async def dispatch(
         )
     if name == "scrape_url":
         return await firecrawl.scrape_url(client, url=args.get("url", ""))
-    return f"Unknown tool: {name}", []
+    return f"Unknown tool {name!r}. Available tools: web_search, scrape_url.", []

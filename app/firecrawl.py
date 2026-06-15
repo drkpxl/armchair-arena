@@ -34,26 +34,30 @@ def _truncate(text: str | None, limit: int) -> str:
 async def web_search(
     client: httpx.AsyncClient, query: str, limit: int = 5
 ) -> tuple[str, list[Source]]:
-    """Search the web; return (markdown results, source URLs)."""
-    payload = {
-        "query": query,
-        "limit": max(1, min(int(limit or 5), 10)),
-        "scrapeOptions": {"formats": ["markdown"]},
-    }
+    """Search the web; return (ranked results with snippets, source URLs).
+
+    Deliberately does NOT scrape each result page — that overloads Firecrawl's browser
+    service under concurrent multi-model runs and returns empty results. The model gets
+    titles/URLs/snippets and can scrape_url any page it wants to read in depth.
+    """
+    payload = {"query": query, "limit": max(1, min(int(limit or 5), 10))}
     resp = await client.post(f"{FIRECRAWL_URL}/v1/search", json=payload)
     resp.raise_for_status()
     body = resp.json()
     results = body.get("data") or []
     if not results:
-        warn = body.get("warning") or "no results"
-        return f"No search results for {query!r} ({warn}).", []
+        warn = body.get("warning") or "no results returned"
+        return (
+            f"Web search returned no results for {query!r} ({warn}). Do not invent an "
+            "answer from memory — if you cannot find the information, say so plainly."
+        ), []
 
     parts: list[str] = []
     sources: list[Source] = []
     for i, r in enumerate(results, 1):
         title = r.get("title") or "(untitled)"
         url = r.get("url") or ""
-        snippet = _truncate(r.get("markdown") or r.get("description"), SEARCH_SNIPPET_CHARS)
+        snippet = _truncate(r.get("description"), SEARCH_SNIPPET_CHARS)
         parts.append(f"[{i}] {title}\nURL: {url}\n{snippet}")
         if url:
             sources.append({"url": url, "role": "search_result"})

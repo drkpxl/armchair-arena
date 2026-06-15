@@ -104,7 +104,8 @@ async def run_model(
                 except Exception as exc:  # tool failure shouldn't kill the run
                     result, srcs = f"Tool {name} failed: {exc}", []
                 tool_trace.append(
-                    {"tool": name, "args": args, "result_chars": len(result)}
+                    {"tool": name, "args": args, "result_chars": len(result),
+                     "results": len(srcs)}
                 )
                 for s in srcs:
                     url, role = s["url"], s["role"]
