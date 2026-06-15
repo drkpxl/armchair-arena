@@ -70,6 +70,11 @@ point it's asked for a final answer with tools disabled).
   - **A local Ollama daemon** — <https://ollama.com/download>
 - **A self-hosted Firecrawl** for the web tools — <https://github.com/firecrawl/firecrawl>
   (runs in Docker; the app expects it at `http://localhost:3002`).
+  > **Reliable search:** Firecrawl's default search scrapes DuckDuckGo, which anti-bot-blocks
+  > after a few rapid queries (a side-by-side run is a burst) and returns empty — models then
+  > answer from memory. Point Firecrawl at a [SearXNG](https://github.com/searxng/searxng)
+  > instance (`SEARXNG_ENDPOINT`, with JSON format enabled) or a search-API key for dependable
+  > results. Check `/api/health` — `web_tools: true` means a canary search actually returned hits.
 
 ## Quick start
 

@@ -67,8 +67,9 @@ Success looks like:
 ```
 
 - `ollama.ok: true` → models load; setup is functional. Confirm `models > 0`.
-- `web_tools: false` → Firecrawl isn't reachable. **This is OK** — tell the user web research is
-  off and how to enable Firecrawl if they want it; don't treat it as a failure.
+- `web_tools: false` → Firecrawl's search isn't returning results (the `firecrawl.note` says why:
+  unreachable, or reachable-but-empty). **This is OK** — tell the user web research is off and how
+  to fix it; don't treat it as a failure.
 - `ok: false` → the model backend is unreachable; see troubleshooting.
 
 ## Troubleshooting
@@ -78,7 +79,8 @@ Success looks like:
 | `ollama.ok: false`, 401/403 | Bad/missing `OLLAMA_API_KEY` for Ollama Cloud. Re-check the key. |
 | `ollama.ok: false`, connection refused | `OLLAMA_HOST` wrong, or local daemon not running (`ollama serve`). |
 | `models: 0` | Cloud key has no access, or no models pulled locally (`ollama pull <model>`). |
-| `web_tools: false` | Firecrawl not running at `FIRECRAWL_URL`. Optional — app still works. |
+| `web_tools: false`, note "unreachable" | Firecrawl not running at `FIRECRAWL_URL`. Optional — app still works. |
+| `web_tools: false`, note "no results" | Firecrawl up but search blocked (default DuckDuckGo gets anti-bot-blocked). Configure `SEARXNG_ENDPOINT` or a search-API key in Firecrawl. |
 | Port already in use | Change `PORT` in `.env`. |
 | `uv: command not found` | Install uv (see Prerequisites). |
 
