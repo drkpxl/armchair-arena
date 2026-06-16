@@ -203,17 +203,74 @@ async def run_model(
     return result
 
 
-async def run_batch(question: str, models: list[str]) -> dict[str, Any]:
-    """Run the question across all selected models concurrently."""
+# In-memory registry of in-flight / recently-finished batches. A batch runs as a
+# background task decoupled from the HTTP request that started it, so the client can
+# poll for results instead of holding one long request open. This is what makes the
+# app survive mobile backgrounding: suspending the tab kills the open connection, but
+# the batch keeps running server-side and each model's result is recoverable on the
+# next poll (also already persisted to the DB by run_model).
+_BATCHES: dict[str, dict[str, Any]] = {}
+_BATCH_CAP = 50  # keep only the most recent N batches in memory
+
+
+def _prune_batches() -> None:
+    while len(_BATCHES) > _BATCH_CAP:
+        _BATCHES.pop(next(iter(_BATCHES)))  # dicts preserve insertion order: drop oldest
+
+
+async def _run_batch_bg(batch_id: str, question: str, models: list[str]) -> None:
+    state = _BATCHES[batch_id]
+    try:
+        timeout = httpx.Timeout(REQUEST_TIMEOUT)
+        async with httpx.AsyncClient(timeout=timeout) as ollama_client, \
+                httpx.AsyncClient(timeout=timeout) as fc_client:
+            web_ok = await firecrawl.available(fc_client)
+            state["web_tools"] = web_ok
+
+            async def one(m: str) -> None:
+                try:
+                    state["results"][m] = await run_model(
+                        question, m, batch_id, ollama_client, fc_client, web_ok
+                    )
+                except Exception as exc:  # never let one model sink the batch
+                    state["results"][m] = {
+                        "model": m, "error": f"{type(exc).__name__}: {exc}",
+                        "id": None, "sources": [], "tool_trace": "[]",
+                    }
+
+            await asyncio.gather(*(one(m) for m in models))
+    except Exception as exc:
+        state["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        state["done"] = True
+
+
+def start_batch(question: str, models: list[str]) -> str:
+    """Launch a batch in the background and return its id immediately."""
     batch_id = uuid.uuid4().hex
-    timeout = httpx.Timeout(REQUEST_TIMEOUT)
-    async with httpx.AsyncClient(timeout=timeout) as ollama_client, \
-            httpx.AsyncClient(timeout=timeout) as fc_client:
-        web_ok = await firecrawl.available(fc_client)
-        results = await asyncio.gather(
-            *(
-                run_model(question, m, batch_id, ollama_client, fc_client, web_ok)
-                for m in models
-            )
-        )
-    return {"batch_id": batch_id, "results": results, "web_tools": web_ok}
+    _BATCHES[batch_id] = {
+        "models": models, "results": {}, "web_tools": None,
+        "error": None, "done": False, "task": None,
+    }
+    _prune_batches()
+    # Hold a reference to the task so it isn't garbage-collected mid-run.
+    _BATCHES[batch_id]["task"] = asyncio.create_task(
+        _run_batch_bg(batch_id, question, models)
+    )
+    return batch_id
+
+
+def batch_status(batch_id: str) -> dict[str, Any] | None:
+    """Poll snapshot for a batch, or None if unknown (e.g. server restarted)."""
+    state = _BATCHES.get(batch_id)
+    if state is None:
+        return None
+    done_models = state["results"]
+    return {
+        "done": state["done"],
+        "web_tools": state["web_tools"],
+        "error": state["error"],
+        "models": state["models"],
+        "results": list(done_models.values()),
+        "pending": [m for m in state["models"] if m not in done_models],
+    }

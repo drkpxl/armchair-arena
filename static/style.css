@@ -161,3 +161,47 @@ tr:hover td { background: var(--panel-2); }
 .frontier-note .chip { display: inline-block; background: var(--accent); color: var(--ink); font-weight: 700; padding: 2px 8px; margin: 2px 4px 2px 0; text-transform: uppercase; font-size: 11px; }
 .models-table tr.frontier td { background: rgba(255, 200, 61, 0.08); }
 .models-table tr.frontier td:first-child { color: var(--accent); font-weight: 700; }
+
+.card.pending { opacity: 0.85; }
+.card.pending .spinner::after {
+  content: ""; display: inline-block; width: 8px; height: 8px; margin-left: 8px;
+  background: var(--accent); animation: blink 1s steps(2, start) infinite;
+}
+@keyframes blink { to { visibility: hidden; } }
+
+/* iOS Safari auto-zooms (and crops) when you focus a form control whose font-size is
+   under 16px. Our controls inherit 14px, so bump them to 16px on touch devices — this
+   suppresses the zoom without disabling pinch-zoom (which a maximum-scale meta would). */
+@media (pointer: coarse) {
+  textarea, input, select { font-size: 16px; }
+}
+
+/* ---- Mobile / narrow screens ----
+   The default card + chart grids use minmax(360px/420px, 1fr); on a phone the container
+   is narrower than that minimum, which forces a track wider than the viewport and makes
+   the page scroll sideways. Collapse to a single column and shrink the chrome. */
+@media (max-width: 760px) {
+  main { padding: 16px 12px; }
+  .cards, .chart-grid { grid-template-columns: 1fr; }
+  .chart-box.wide { grid-column: auto; }
+  .scatter-wrap { height: 360px; }
+}
+
+@media (max-width: 560px) {
+  header { padding: 12px 14px; gap: 10px; flex-wrap: wrap; }
+  header h1 { font-size: 12px; }
+  header nav { gap: 12px; }
+  header nav a { font-size: 11px; }
+
+  /* Smaller, tighter model pills so they don't dominate the viewport. */
+  .models { gap: 6px; }
+  .models label { padding: 5px 8px; font-size: 10px; letter-spacing: 0; gap: 5px; }
+
+  .card { padding: 13px; }
+  .answer { max-height: 50vh; padding: 11px; }
+  .toolbar { flex-wrap: wrap; }
+  .toolbar button { flex: 1 1 auto; }
+  #tooltip { max-width: 90vw; }
+  table { font-size: 11px; }
+  th, td { padding: 6px 7px; }
+}

@@ -206,35 +206,127 @@ function card(res) {
   return c;
 }
 
+// Placeholder card shown while a model is still running, replaced in place when its
+// result arrives. Keeps a model's slot visible so progress is legible.
+function pendingCard(model) {
+  const c = el("div", { className: "card pending" });
+  c.append(el("h3", {}, el("span", { className: "model-name", textContent: model })));
+  c.append(el("div", { className: "spinner", textContent: "running…" }));
+  return c;
+}
+
+// ---- batch polling ----
+// A batch runs server-side, decoupled from any single request, so leaving the tab or
+// switching apps never wastes the query: the work keeps going and each poll recovers
+// whatever has finished. The active batch id is stashed in localStorage so even a full
+// reload (or a phone killing the page) resumes instead of losing the run.
+const ACTIVE_KEY = "armchair.activeBatch";
+let polling = false;
+
+function setRunning(on) { $("#run").disabled = on; }
+
+async function pollBatch(batchId, models, rendered) {
+  // rendered: Map(model -> card element). Pre-seed placeholders for any not yet drawn.
+  for (const m of models) {
+    if (!rendered.has(m)) {
+      const ph = pendingCard(m);
+      rendered.set(m, ph);
+      $("#cards").append(ph);
+    }
+  }
+  polling = true;
+  setRunning(true);
+  while (polling) {
+    let state;
+    try {
+      const r = await fetch("/api/batch/" + encodeURIComponent(batchId));
+      if (r.status === 404) {  // server restarted or batch pruned
+        $("#status").textContent = "This run is no longer available (server restarted). Run again.";
+        localStorage.removeItem(ACTIVE_KEY);
+        break;
+      }
+      if (!r.ok) throw new Error(await r.text());
+      state = await r.json();
+    } catch (e) {
+      $("#status").textContent = "Connection lost, retrying…";
+      await new Promise((res) => setTimeout(res, 2000));
+      continue;
+    }
+
+    for (const res of state.results) {
+      const ph = rendered.get(res.model);
+      const real = card(res);
+      if (ph) ph.replaceWith(real); else $("#cards").append(real);
+      rendered.set(res.model, real);
+    }
+
+    const doneCount = state.results.length, total = state.models.length;
+    if (state.done) {
+      $("#status").textContent = state.error
+        ? "Finished with errors: " + state.error
+        : "Done. Vote each answer 1–5.";
+      localStorage.removeItem(ACTIVE_KEY);
+      break;
+    }
+    $("#status").textContent = `Running… ${doneCount}/${total} done (cloud models can take a while).`;
+    await new Promise((res) => setTimeout(res, 2000));
+  }
+  polling = false;
+  setRunning(false);
+}
+
 $("#run").addEventListener("click", async () => {
   const question = $("#question").value.trim();
   if (!question) { $("#status").textContent = "Enter a question."; return; }
   if (!selected.size) { $("#status").textContent = "Select at least one model."; return; }
 
-  const btn = $("#run");
-  btn.disabled = true;
-  $("#status").textContent = `Running ${selected.size} model(s)… (cloud models can take a while)`;
+  const models = [...selected];
+  setRunning(true);
+  $("#status").textContent = `Starting ${models.length} model(s)…`;
   $("#cards").textContent = "";
   try {
     const r = await fetch("/api/ask", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, models: [...selected] }),
+      body: JSON.stringify({ question, models }),
     });
     if (!r.ok) throw new Error(await r.text());
-    const { results } = await r.json();
-    $("#status").textContent = "Done. Vote each answer 1–5.";
-    for (const res of results) $("#cards").append(card(res));
+    const { batch_id } = await r.json();
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify({ batch_id, models }));
+    pollBatch(batch_id, models, new Map());
   } catch (e) {
-    $("#status").textContent = "Failed: " + e;
-  } finally {
-    btn.disabled = false;
+    $("#status").textContent = "Failed to start: " + e;
+    setRunning(false);
   }
 });
 
+// Returning to a backgrounded tab: poke an immediate poll instead of waiting out the
+// interval (mobile browsers freeze timers while hidden).
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !polling) resumeActiveBatch();
+});
+
+function resumeActiveBatch() {
+  const raw = localStorage.getItem(ACTIVE_KEY);
+  if (!raw) return;
+  let saved;
+  try { saved = JSON.parse(raw); } catch { localStorage.removeItem(ACTIVE_KEY); return; }
+  if (!saved.batch_id) return;
+  // Re-attach to existing cards by model name so we don't duplicate them.
+  const rendered = new Map();
+  for (const c of $("#cards").querySelectorAll(".card")) {
+    const name = c.querySelector(".model-name");
+    if (name) rendered.set(name.textContent, c);
+  }
+  pollBatch(saved.batch_id, saved.models || [], rendered);
+}
+
 $("#reset").addEventListener("click", () => {
+  polling = false;  // stop any in-flight poll loop so it can't re-append cards
+  localStorage.removeItem(ACTIVE_KEY);
   $("#question").value = "";
   $("#cards").textContent = "";
   $("#status").textContent = "";
+  setRunning(false);
   hideTip();
   selectRandom(3);
   $("#question").focus();
@@ -259,3 +351,4 @@ async function checkHealth() {
 
 checkHealth();
 loadModels();
+resumeActiveBatch();  // recover an in-flight comparison after a reload / phone killing the page

@@ -79,7 +79,21 @@ async def model_info(name: str) -> dict:
 
 @app.post("/api/ask")
 async def ask(req: AskRequest) -> dict:
-    return await runner.run_batch(req.question, req.models)
+    """Start a batch in the background; the client polls /api/batch/{id} for results.
+
+    Decoupling the run from this request is what lets the app survive mobile
+    backgrounding — suspending the tab no longer aborts an in-flight comparison.
+    """
+    batch_id = runner.start_batch(req.question, req.models)
+    return {"batch_id": batch_id, "models": req.models}
+
+
+@app.get("/api/batch/{batch_id}")
+async def batch(batch_id: str) -> dict:
+    state = runner.batch_status(batch_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="batch not found")
+    return state
 
 
 @app.post("/api/vote")
