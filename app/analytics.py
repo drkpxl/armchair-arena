@@ -130,8 +130,7 @@ def enrich(
     for row in agg_rows:
         m = dict(row)
         s = strength.get(m["model"])
-        m["strength"] = s["strength"] if s else None
-        m["elo"] = s["elo"] if s else None
+        m["elo"] = s["elo"] if s else None  # raw `strength` p-value isn't surfaced; elo is
         decided = m.get("decided") or 0
         won = m.get("wins") or 0
         lo, hi = wilson(won, decided)

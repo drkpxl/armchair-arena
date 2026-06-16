@@ -6,11 +6,13 @@ knowledge — and judging them on the three things that actually matter day to d
 fast, was it token-efficient, and was the answer good?**
 
 Too many open models, no idea which one should be your "set and forget" pick? Stop guessing.
-Pit a few against each other on *your* questions and vote on what actually helps you.
+Pit three against each other on *your* questions and crown the best answer each round — over many
+rounds that becomes a defensible ranking of what actually helps you.
 
-Pick a few models, ask one question, see the answers **side-by-side**, and vote. Every run
-records the question, answer, your rating, tokens used, and wall-clock time to SQLite. An
-analytics page turns that into blended leaderboards across all your tests, plus CSV export.
+Pick 3 models, ask one question, see the answers **side-by-side**, and crown the best one. Every
+run records the question, answer, the winner, tokens used, and wall-clock time to SQLite. An
+analytics page turns that into an **opponent-aware strength rating** across all your tests, plus
+CSV export.
 
 Models are served through [Ollama](https://ollama.com) (cloud or a local daemon), and every
 model is given the **same web-research tools** (powered by a self-hosted
@@ -20,19 +22,19 @@ model is given the **same web-research tools** (powered by a self-hosted
 
 ## Screenshots
 
-**Compare** — ask once, see answers side-by-side with live metrics, the sources each model
-pulled in, star rating, and per-source credibility voting:
+**Compare** — ask once, see answers side-by-side with live metrics, the source links each model
+pulled in, and a one-click **winner pick**:
 
 ![Compare page](docs/compare.png)
 
-**Analytics** — blended leaderboards across *all* your tests, a quality-vs-cost scatter, and a
-sortable run table (with CSV export):
+**Analytics** — an opponent-aware **strength (Elo) leaderboard** across *all* your tests, a
+quality-vs-cost scatter, and a sortable run table (with CSV export):
 
 ![Analytics page](docs/analytics.png)
 
 ## Features
 
-- **Side-by-side comparison** — ask once, run on 2–4 models concurrently.
+- **Side-by-side comparison** — ask once, run exactly 3 models concurrently (random-seeded or hand-picked).
 - **Real metrics** — tokens (prompt/completion), tokens/sec, wall-clock, and tool-call count,
   pulled from Ollama's native `/api/chat` timing fields.
 - **Consistent tool use** — identical `web_search` + `scrape_url` tools (Firecrawl) offered to
@@ -42,14 +44,17 @@ sortable run table (with CSV export):
   (so "this year"/"latest" resolve correctly), optional locale/units, and a nudge to cite the
   source URLs it used.
 - **Markdown answers** rendered properly.
-- **Quality voting** — rate each answer 1–5 stars.
-- **Source credibility** — see every URL a model pulled in (search results + scraped pages) and
-  vote each credible yes/no.
-- **Blended analytics + best-tradeoff finder** — a per-model summary table and a Pareto
-  **efficiency frontier** that flags the models no other beats on quality, token cost, *and*
-  speed at once (objective, no weighting) — so you know which are actually worth considering.
-  Plus single-metric leaderboards, a quality-vs-cost scatter (frontier highlighted), a sortable
-  run table, and CSV exports (runs + sources), all averaged across *all* your tests.
+- **Winner pick** — mark the single best answer of the three (re-pickable; click again to clear).
+  One decisive judgment per round instead of fuzzy 1–5 ratings, so the data is more quantifiable.
+- **Source links** — see every URL a model pulled in (search results + scraped pages), shown for
+  context (read-only).
+- **Opponent-aware strength + best-tradeoff finder** — every 3-way result feeds a **Bradley-Terry
+  strength rating** (Elo-scaled; beating *strong* models counts more than beating weak ones),
+  shown alongside win-rate with a **95% confidence interval** and a **low-data flag** so a small
+  sample can't masquerade as the best. A Pareto **efficiency frontier** flags the models no other
+  beats on strength, token cost, *and* speed at once (objective, no weighting), gated on sample
+  size. Plus single-metric leaderboards, a strength-vs-cost scatter (frontier highlighted), a
+  sortable run table, and CSV exports (runs + sources), across *all* your tests.
 - **Model picker with tooltips** — hover any model to see params, architecture, context window,
   capabilities (tools/vision/thinking), and quantization. Stale models (not updated in N months)
   are filtered out.
@@ -60,7 +65,7 @@ sortable run table (with CSV export):
 Browser ──> FastAPI app (this repo) ──> Ollama   /api/chat, /api/tags, /api/show
                   │                      (cloud at ollama.com, or a local daemon)
                   ├─────────────────────> Firecrawl  /v1/search, /v1/scrape  (web tools)
-                  └─────────────────────> SQLite  (runs + sources + votes)
+                  └─────────────────────> SQLite  (runs + sources)
 ```
 
 When you ask a question, each selected model runs an independent tool-calling loop: it may call
@@ -148,20 +153,20 @@ loginctl enable-linger "$USER"   # survive logout/reboot
 | `GET` | `/api/health` | Backend status: Ollama + a Firecrawl search canary (`web_tools` = search actually works). |
 | `GET` | `/api/models` | Available models (age- and pattern-filtered). |
 | `GET` | `/api/model_info?name=` | Metadata for one model (tooltip). |
-| `POST` | `/api/ask` | `{question, models[]}` -> run the batch, return answers + metrics + sources. |
-| `POST` | `/api/vote` | `{run_id, rating}` -> 1-5 star rating. |
-| `POST` | `/api/source_vote` | `{source_id, credible}` -> mark a source credible or not. |
-| `GET` | `/api/analytics` | Per-model blended aggregates. |
+| `POST` | `/api/ask` | `{question, models[]}` (**exactly 3**) -> start a batch; returns `batch_id`. |
+| `GET` | `/api/batch/{id}` | Poll a running batch for answers + metrics + sources. |
+| `POST` | `/api/winner` | `{run_id, win}` -> mark that run the batch winner (`win:false` clears it). |
+| `GET` | `/api/analytics` | Per-model strength (Elo), win-rate + 95% CI, and cost/speed aggregates. |
 | `GET` | `/api/runs` | All runs (raw). |
 | `GET` | `/api/export.csv` | Runs CSV. |
-| `GET` | `/api/export_sources.csv` | Sources CSV (with credibility). |
+| `GET` | `/api/export_sources.csv` | Sources CSV. |
 
 ## Data
 
 SQLite at `data/eval.db` (created on first run):
-- **`runs`** — one row per (question, model): answer, rating, tokens, timings, tool trace, error.
-- **`sources`** — one row per URL a model touched: url, domain, role (`search_result`/`scraped`),
-  and your `credible` vote.
+- **`runs`** — one row per (question, model): answer, `win` (1 for the picked winner of its batch),
+  tokens, timings, tool trace, error.
+- **`sources`** — one row per URL a model touched: url, domain, role (`search_result`/`scraped`).
 
 ## Notes
 

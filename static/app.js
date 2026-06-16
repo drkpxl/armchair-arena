@@ -123,6 +123,12 @@ async function loadModels() {
       box.append(label);
     }
     selectRandom(3);
+    if (models.length < MAX_MODELS) {
+      // Run gates on exactly 3 selected, so too few models would silently disable it
+      // with no explanation — say why instead.
+      $("#status").textContent =
+        `Only ${models.length} model${models.length === 1 ? "" : "s"} available — need ${MAX_MODELS} to run. Check the model backend / EXCLUDE_MODELS.`;
+    }
   } catch (e) {
     box.textContent = "Failed to load models: " + e;
   }
@@ -147,19 +153,27 @@ function metric(label, value) {
 // Pick the single best answer of the trio. One winner per batch: clicking another
 // card moves the crown; clicking the current winner again clears it (batch becomes
 // undecided and drops out of the analytics). The server enforces the one-per-batch
-// rule, so here we just keep the highlight in sync across the cards.
+// rule; `winnerRunId` (module-level) is what keeps the highlight correct when a card
+// is rebuilt by polling — the poll payload always carries win=0, so without it a
+// re-render would silently drop the crown the user already picked.
 function winnerButton(res) {
   const wrap = el("div", { className: "winner-wrap" });
+  // A failed/empty answer can't be "the best", and an unsaved run has no id to vote on.
+  const pickable = res.id != null && res.error == null;
+  const isWinner = pickable && res.id === winnerRunId;
   const btn = el("button", {
-    className: "winner-btn", type: "button",
-    textContent: "Pick as winner", disabled: res.id == null,
+    className: isWinner ? "winner-btn on" : "winner-btn", type: "button",
+    textContent: isWinner ? "★ Winner" : "Pick as winner", disabled: !pickable,
   });
   const saved = el("span", { className: "saved" });
   btn.addEventListener("click", async () => {
     const nowWin = !btn.classList.contains("on");
     for (const b of document.querySelectorAll("#cards .winner-btn.on")) {
       b.classList.remove("on"); b.textContent = "Pick as winner";
+      const sib = b.parentElement.querySelector(".saved");
+      if (sib) sib.textContent = "";  // drop a stale "✓ saved" on the dethroned card
     }
+    winnerRunId = nowWin ? res.id : null;
     if (nowWin) { btn.classList.add("on"); btn.textContent = "★ Winner"; }
     saved.textContent = "saving…";
     try {
@@ -243,6 +257,7 @@ function pendingCard(model) {
 // reload (or a phone killing the page) resumes instead of losing the run.
 const ACTIVE_KEY = "armchair.activeBatch";
 let polling = false;
+let winnerRunId = null;  // run id the user picked as winner this batch (survives card re-renders)
 
 // Run stays disabled while a batch is in flight AND whenever the picker isn't at
 // exactly 3, so finishing a run doesn't silently re-enable an invalid selection.
@@ -307,6 +322,7 @@ $("#run").addEventListener("click", async () => {
   setRunning(true);
   $("#status").textContent = `Starting ${models.length} model(s)…`;
   $("#cards").textContent = "";
+  winnerRunId = null;  // fresh batch, nothing picked yet
   try {
     const r = await fetch("/api/ask", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -351,6 +367,7 @@ $("#shuffle").addEventListener("click", () => {
 
 $("#reset").addEventListener("click", () => {
   polling = false;  // stop any in-flight poll loop so it can't re-append cards
+  winnerRunId = null;
   localStorage.removeItem(ACTIVE_KEY);
   $("#question").value = "";
   $("#cards").textContent = "";

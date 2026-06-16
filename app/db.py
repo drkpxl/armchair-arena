@@ -133,7 +133,10 @@ def set_winner(run_id: int, win: bool = True) -> bool:
 def analytics() -> list[dict[str, Any]]:
     """Per-model aggregates across all runs (win-rate based).
 
-    A "decided appearance" is a run whose batch has a winner picked (SUM(win) > 0).
+    A "decided appearance" is a non-errored run whose batch has a winner picked
+    (SUM(win) > 0). Errored runs are excluded from the denominator so win_rate is
+    measured over the same set of runs that feeds the strength fit (decided_batches()
+    also filters error IS NULL) — the two numbers in a table row stay consistent.
     win_rate = wins / decided_appearances; NULL when a model has no decided batches.
     Opponent-aware strength is layered on top in app/analytics.py from decided_batches().
     """
@@ -145,9 +148,9 @@ def analytics() -> list[dict[str, Any]]:
         r.model,
         COUNT(*)                                                AS n,
         SUM(r.win)                                              AS wins,
-        SUM(CASE WHEN d.batch_id IS NOT NULL THEN 1 ELSE 0 END) AS decided,
+        SUM(CASE WHEN d.batch_id IS NOT NULL AND r.error IS NULL THEN 1 ELSE 0 END) AS decided,
         ROUND(CAST(SUM(r.win) AS REAL)
-              / NULLIF(SUM(CASE WHEN d.batch_id IS NOT NULL THEN 1 ELSE 0 END), 0), 3)
+              / NULLIF(SUM(CASE WHEN d.batch_id IS NOT NULL AND r.error IS NULL THEN 1 ELSE 0 END), 0), 3)
                                                                 AS win_rate,
         ROUND(AVG(r.total_tokens), 0)                           AS avg_total_tokens,
         ROUND(AVG(r.completion_tokens), 0)                      AS avg_completion_tokens,

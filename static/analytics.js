@@ -80,8 +80,11 @@ function renderModelsTable() {
     htr.append(th);
   }
   thead.append(htr);
+  // "ci" is a synthetic display column with no row field of its own; sort it by the
+  // lower confidence bound so clicking the header actually orders the rows.
+  const sortField = mSortKey === "ci" ? "ci_low" : mSortKey;
   const sorted = [...modelRows].sort((a, b) => {
-    const x = a[mSortKey], y = b[mSortKey];
+    const x = a[sortField], y = b[sortField];
     if (x == null) return 1; if (y == null) return -1;
     const cmp = typeof x === "number" ? x - y : String(x).localeCompare(String(y));
     return mSortAsc ? cmp : -cmp;

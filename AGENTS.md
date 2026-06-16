@@ -5,9 +5,10 @@ Arena** for a user. Follow it top to bottom; verify with the health check at the
 
 ## What you're setting up
 
-A small FastAPI web app that lets the user compare LLMs side-by-side on non-coding tasks and
-vote on quality. It talks to **Ollama** (cloud or a local daemon) for models and, optionally, a
-self-hosted **Firecrawl** for web-research tools.
+A small FastAPI web app that lets the user compare LLMs side-by-side on non-coding tasks: it runs
+exactly three models on one question and the user crowns the single best answer, which builds an
+opponent-aware strength ranking (Bradley-Terry / Elo) over time. It talks to **Ollama** (cloud or
+a local daemon) for models and, optionally, a self-hosted **Firecrawl** for web-research tools.
 
 ## Prerequisites (check, don't assume)
 
