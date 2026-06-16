@@ -274,6 +274,11 @@ async function pollBatch(batchId, models, rendered) {
   }
   polling = true;
   setRunning(true);
+  // A model's result is immutable once it lands, so draw each card exactly once. Re-rendering
+  // a finished card every poll tears down its DOM — which resets the answer box's scroll
+  // position (the "answer jumps up while I'm reading it and the 3rd model is still running"
+  // bug) and churns the layout for no reason.
+  const finalized = new Set();
   while (polling) {
     let state;
     try {
@@ -292,10 +297,12 @@ async function pollBatch(batchId, models, rendered) {
     }
 
     for (const res of state.results) {
+      if (finalized.has(res.model)) continue;  // already drawn; don't disturb it
       const ph = rendered.get(res.model);
       const real = card(res);
       if (ph) ph.replaceWith(real); else $("#cards").append(real);
       rendered.set(res.model, real);
+      finalized.add(res.model);
     }
 
     const doneCount = state.results.length, total = state.models.length;
