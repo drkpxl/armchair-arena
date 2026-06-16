@@ -78,6 +78,9 @@ button.secondary { background: var(--panel-2); color: var(--text); border: 2px s
 }
 .models label:hover { border-color: var(--accent); }
 .models label.checked { border-color: var(--accent2); color: var(--accent2); box-shadow: 3px 3px 0 0 var(--accent2); }
+/* Once 3 are picked the rest are disabled — dim them and kill the hover affordance. */
+.models label.disabled { opacity: 0.4; cursor: not-allowed; }
+.models label.disabled:hover { border-color: var(--border); }
 .models input { display: none; }
 /* `.models{display:flex}` outranks the UA [hidden]{display:none}, so the picker wouldn't
    actually hide when collapsed without this. */
@@ -137,18 +140,14 @@ button.secondary { background: var(--panel-2); color: var(--text); border: 2px s
 .source-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
 .source-row a { color: var(--accent2); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-row a:hover { text-decoration: underline; }
-.src-btn { padding: 1px 9px; border-radius: 0; border: 2px solid var(--border); background: var(--panel-2); color: var(--muted); font-weight: 700; line-height: 1.4; }
-.src-btn.yes.on { background: var(--good); color: var(--ink); border-color: var(--good); }
-.src-btn.no.on { background: var(--bad); color: var(--ink); border-color: var(--bad); }
 .src-role { margin-left: auto; color: var(--muted); font-size: 10px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 0; padding: 1px 6px; flex-shrink: 0; text-transform: uppercase; }
 details { margin-top: 10px; }
 details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
 details pre { background: var(--panel-2); padding: 10px; border-radius: 0; overflow: auto; font-size: 12px; }
 
-.stars { font-size: 24px; margin-top: 10px; user-select: none; }
-.stars span { cursor: pointer; color: #3a2f55; transition: color .1s; }
-.stars span.on { color: var(--star); text-shadow: 0 0 8px rgba(255, 200, 61, 0.6); }
-.stars .saved { font-size: 12px; color: var(--good); margin-left: 8px; text-transform: uppercase; }
+.winner-wrap { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+.winner-btn.on { background: var(--good); color: var(--ink); border-color: var(--ink); }
+.winner-wrap .saved { font-size: 12px; color: var(--good); text-transform: uppercase; }
 
 table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
@@ -169,6 +168,8 @@ tr:hover td { background: var(--panel-2); }
 .frontier-note .chip { display: inline-block; background: var(--accent); color: var(--ink); font-weight: 700; padding: 2px 8px; margin: 2px 4px 2px 0; text-transform: uppercase; font-size: 11px; }
 .models-table tr.frontier td { background: rgba(255, 200, 61, 0.08); }
 .models-table tr.frontier td:first-child { color: var(--accent); font-weight: 700; }
+/* Provisional, small-sample models read as muted so a hot streak doesn't look decisive. */
+.models-table tr.low-data td { opacity: 0.55; }
 
 .card.pending { opacity: 0.85; }
 .card.pending .spinner::after {
@@ -213,6 +214,9 @@ tr:hover td { background: var(--panel-2); }
   .card h3 { font-size: 14px; }
   .answer { max-height: 60vh; padding: 11px; }
   .metrics { gap: 5px; }
+  /* Big thumb target for the single most important action on a card. */
+  .winner-wrap { flex-wrap: wrap; }
+  .winner-btn { width: 100%; }
 
   #tooltip { max-width: 90vw; }
   table { font-size: 11px; }

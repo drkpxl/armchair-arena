@@ -27,17 +27,18 @@ function rank(rows, key, ascending) {
 }
 
 // ---- efficiency frontier (Pareto) over quality, token cost, speed ----
-// A model is on the frontier if no other model beats it on rating (↑), tokens (↓),
-// AND tokens/sec (↑) at once. No weighting — objectively non-dominated tradeoffs.
+// Quality = opponent-aware strength (Elo). A model is on the frontier if no other model
+// beats it on strength (↑), tokens (↓), AND tokens/sec (↑) at once. Low-data models are
+// excluded so a small-sample streak can't claim a non-dominated tradeoff.
 function paretoFrontier(models) {
   const elig = models.filter(
-    (m) => m.avg_rating != null && m.avg_total_tokens != null && m.avg_tokens_per_sec != null,
+    (m) => !m.low_data && m.elo != null && m.avg_total_tokens != null && m.avg_tokens_per_sec != null,
   );
   const dominates = (a, b) =>
-    a.avg_rating >= b.avg_rating &&
+    a.elo >= b.elo &&
     a.avg_total_tokens <= b.avg_total_tokens &&
     a.avg_tokens_per_sec >= b.avg_tokens_per_sec &&
-    (a.avg_rating > b.avg_rating ||
+    (a.elo > b.elo ||
       a.avg_total_tokens < b.avg_total_tokens ||
       a.avg_tokens_per_sec > b.avg_tokens_per_sec);
   return new Set(
@@ -48,23 +49,23 @@ function paretoFrontier(models) {
 function renderFrontierNote(frontier) {
   const f = [...frontier], el = document.getElementById("frontier-note");
   if (!f.length) {
-    el.innerHTML = "Vote on a few answers across some models to compute the efficiency frontier.";
+    el.innerHTML = "Pick winners across at least a few batches per model to compute strength and the efficiency frontier.";
     return;
   }
   el.innerHTML =
     `<b>${f.length} model${f.length > 1 ? "s" : ""} on the efficiency frontier</b> — no other ` +
-    `model beats ${f.length > 1 ? "them" : "it"} on quality, token cost, and speed together. ` +
+    `model beats ${f.length > 1 ? "them" : "it"} on strength, token cost, and speed together. ` +
     `Start here: ` + f.map((m) => `<span class="chip">⭐ ${m}</span>`).join(" ");
 }
 
 // ---- per-model summary table (sortable) ----
 const MODEL_COLS = [
-  ["model", "model", false], ["n", "runs", true], ["n_rated", "rated", true],
-  ["avg_rating", "rating", true], ["avg_total_tokens", "avg tokens", true],
+  ["model", "model", false], ["elo", "strength", true], ["win_rate", "win%", true],
+  ["ci", "95% CI", false], ["wins", "wins", true], ["decided", "decided", true],
+  ["n", "runs", true], ["avg_total_tokens", "avg tokens", true],
   ["avg_tokens_per_sec", "tok/s", true], ["wall_s", "wall (s)", true],
-  ["rating_per_1k", "rating /1k tok", true],
 ];
-let modelRows = [], mSortKey = "avg_rating", mSortAsc = false, frontierSet = new Set();
+let modelRows = [], mSortKey = "elo", mSortAsc = false, frontierSet = new Set();
 
 function renderModelsTable() {
   const thead = document.querySelector("#models-table thead");
@@ -89,11 +90,14 @@ function renderModelsTable() {
     const tr = document.createElement("tr");
     const onF = frontierSet.has(m.model);
     if (onF) tr.className = "frontier";
+    if (m.low_data) tr.classList.add("low-data");
     for (const [key, , num] of MODEL_COLS) {
       const td = document.createElement("td");
       let v = m[key];
-      if (key === "model") v = (onF ? "⭐ " : "") + m.model;
-      else if (key === "avg_rating") v = v == null ? "—" : Number(v).toFixed(2);
+      if (key === "model") v = (onF ? "⭐ " : "") + m.model + (m.low_data ? " ⚠" : "");
+      else if (key === "elo") v = v == null ? "—" : v;
+      else if (key === "win_rate") v = v == null ? "—" : (v * 100).toFixed(0) + "%";
+      else if (key === "ci") v = m.ci_low == null ? "—" : `[${Math.round(m.ci_low * 100)}–${Math.round(m.ci_high * 100)}%]`;
       else if (v == null) v = "—";
       td.textContent = v;
       if (num) td.className = "num";
@@ -110,35 +114,31 @@ async function loadCharts() {
   // Derive tradeoff fields, compute the efficiency frontier, render the headline.
   for (const m of models) {
     m.wall_s = m.avg_wall_clock_ms != null ? +(m.avg_wall_clock_ms / 1000).toFixed(1) : null;
-    m.rating_per_1k =
-      m.avg_rating != null && m.avg_total_tokens
-        ? +(m.avg_rating / (m.avg_total_tokens / 1000)).toFixed(2)
-        : null;
   }
   frontierSet = paretoFrontier(models);
   renderFrontierNote(frontierSet);
   modelRows = models;
   renderModelsTable();
 
-  const r1 = rank(models, "avg_rating", false);
-  barChart("c_rating", r1.map((m) => m.model), r1.map((m) => m.avg_rating));
+  // Strength is the headline; only show models with a fit and enough data so the bar
+  // isn't dominated by provisional, small-sample entries.
+  const r1 = rank(models.filter((m) => !m.low_data), "elo", false);
+  barChart("c_strength", r1.map((m) => m.model), r1.map((m) => m.elo));
   const r2 = rank(models, "avg_total_tokens", true);
   barChart("c_tokens", r2.map((m) => m.model), r2.map((m) => m.avg_total_tokens));
   const r3 = rank(models, "avg_tokens_per_sec", false);
   barChart("c_speed", r3.map((m) => m.model), r3.map((m) => m.avg_tokens_per_sec));
   const r4 = rank(models, "avg_wall_clock_ms", true);
   barChart("c_wall", r4.map((m) => m.model), r4.map((m) => +(m.avg_wall_clock_ms / 1000).toFixed(1)));
-  const r5 = rank(models.filter((m) => m.source_votes > 0), "source_credible_pct", false);
-  if (r5.length) barChart("c_cred", r5.map((m) => m.model), r5.map((m) => m.source_credible_pct));
 
   new Chart(document.getElementById("c_scatter"), {
     type: "scatter",
     data: {
-      datasets: models.filter((m) => m.avg_rating != null).map((m, i) => {
+      datasets: models.filter((m) => m.elo != null && !m.low_data).map((m, i) => {
         const onF = frontierSet.has(m.model);
         return {
           label: (onF ? "⭐ " : "") + m.model,
-          data: [{ x: m.avg_total_tokens, y: m.avg_rating, tps: m.avg_tokens_per_sec }],
+          data: [{ x: m.avg_total_tokens, y: m.elo, tps: m.avg_tokens_per_sec }],
           backgroundColor: palette[i % palette.length],
           pointRadius: onF ? 10 : 6,
           pointBorderColor: onF ? "#ffc83d" : "transparent",
@@ -153,13 +153,13 @@ async function loadCharts() {
         legend: { position: "top", labels: { boxWidth: 14, padding: 10 } },
         tooltip: {
           callbacks: {
-            label: (ctx) => `${ctx.dataset.label}: rating ${ctx.parsed.y}, ${ctx.parsed.x.toLocaleString()} tokens, ${ctx.raw.tps ?? "—"} tok/s`,
+            label: (ctx) => `${ctx.dataset.label}: strength ${ctx.parsed.y}, ${ctx.parsed.x.toLocaleString()} tokens, ${ctx.raw.tps ?? "—"} tok/s`,
           },
         },
       },
       scales: {
         x: { title: { display: true, text: "avg total tokens" } },
-        y: { title: { display: true, text: "avg rating" }, min: 0, max: 5 },
+        y: { title: { display: true, text: "strength (Elo)" } },
       },
     },
   });
@@ -171,7 +171,7 @@ async function loadCharts() {
 // ---- sortable run table ----
 const COLS = [
   ["id", "id", true], ["ts", "when", false], ["model", "model", false],
-  ["question", "question", false], ["rating", "rating", true],
+  ["question", "question", false], ["win", "winner", true],
   ["total_tokens", "tokens", true], ["tokens_per_sec", "tok/s", true],
   ["wall_clock_ms", "wall(ms)", true], ["tool_calls", "tools", true],
 ];
@@ -207,7 +207,7 @@ function renderTable() {
       let v = r[key];
       if (key === "question") v = (v || "").slice(0, 60);
       if (key === "ts") v = (v || "").replace("T", " ").replace("+00:00", "");
-      if (key === "rating") v = v == null ? "—" : "★".repeat(v);
+      if (key === "win") v = v ? "★ won" : "";
       td.textContent = v ?? "—";
       if (num) td.className = "num";
       tr.append(td);

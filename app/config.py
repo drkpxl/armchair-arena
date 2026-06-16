@@ -38,6 +38,11 @@ EXCLUDE_MODELS = set(_csv_lower("EXCLUDE_MODELS"))
 # date format, spelling). Empty = omitted.
 USER_LOCALE = os.getenv("USER_LOCALE", "").strip()
 
+# A model needs at least this many decided batches before its win-rate/strength is
+# trusted; below it, analytics flags the model as low-data and keeps it off the
+# efficiency frontier so a small-sample streak can't masquerade as the best model.
+MIN_DECIDED = int(os.getenv("MIN_DECIDED", "5"))
+
 MAX_TOOL_ITERS = int(os.getenv("MAX_TOOL_ITERS", "5"))
 SEARCH_SNIPPET_CHARS = int(os.getenv("SEARCH_SNIPPET_CHARS", "1500"))
 SCRAPE_CHARS = int(os.getenv("SCRAPE_CHARS", "6000"))

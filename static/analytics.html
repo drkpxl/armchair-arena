@@ -27,16 +27,16 @@
 
     <h2 class="section-title">Best tradeoffs</h2>
     <div id="frontier-note" class="frontier-note"></div>
+    <p class="hint" style="margin:0 0 8px">Strength is a Bradley-Terry skill rating fit from every 3-way result — beating stronger models counts more than beating weak ones. Win% shows a 95% confidence interval; models with too few decided batches are flagged ⚠ low-data and kept off the frontier.</p>
     <table id="models-table" class="models-table"><thead></thead><tbody></tbody></table>
 
     <h2 class="section-title">Leaderboards</h2>
     <div class="chart-grid">
-      <div class="chart-box"><h3>Avg rating (1–5) — higher is better</h3><canvas id="c_rating"></canvas></div>
+      <div class="chart-box"><h3>Model strength (Elo, opponent-adjusted) — higher is better</h3><canvas id="c_strength"></canvas></div>
       <div class="chart-box"><h3>Avg total tokens — lower is better</h3><canvas id="c_tokens"></canvas></div>
       <div class="chart-box"><h3>Avg speed (tokens/sec) — higher is better</h3><canvas id="c_speed"></canvas></div>
       <div class="chart-box"><h3>Avg wall-clock (s) — lower is better</h3><canvas id="c_wall"></canvas></div>
-      <div class="chart-box"><h3>Avg source credibility (% of cited sources you marked credible)</h3><canvas id="c_cred"></canvas></div>
-      <div class="chart-box wide"><h3>Quality vs cost (rating vs tokens)</h3><div class="scatter-wrap"><canvas id="c_scatter"></canvas></div></div>
+      <div class="chart-box wide"><h3>Quality vs cost (strength vs tokens)</h3><div class="scatter-wrap"><canvas id="c_scatter"></canvas></div></div>
     </div>
 
     <h2 class="section-title">All runs</h2>

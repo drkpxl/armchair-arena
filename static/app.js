@@ -7,6 +7,22 @@ const el = (tag, props = {}, ...kids) => {
 
 const selected = new Set();
 
+// Every run pits exactly three models against each other — that's what makes the
+// winner picks comparable and the analytics quantifiable.
+const MAX_MODELS = 3;
+
+// Reflect the "exactly 3" rule in the UI: once 3 are checked, grey out the rest so a
+// 4th can't be added, and only enable Run at exactly 3.
+function syncPickerLimits() {
+  const atMax = selected.size >= MAX_MODELS;
+  for (const input of document.querySelectorAll("#models input")) {
+    input.disabled = atMax && !input.checked;
+    input.closest("label").classList.toggle("disabled", input.disabled);
+  }
+  const run = $("#run");
+  if (run) run.disabled = selected.size !== MAX_MODELS || polling;
+}
+
 // Pre-select n random models (used on load and on reset, so a lazy run always
 // pits a fresh trio against each other).
 function selectRandom(n) {
@@ -22,6 +38,7 @@ function selectRandom(n) {
     input.closest("label").classList.add("checked");
     selected.add(input.value);
   }
+  syncPickerLimits();
 }
 
 // ---- model info tooltip (lazy-fetched, cached) ----
@@ -98,6 +115,7 @@ async function loadModels() {
       input.addEventListener("change", () => {
         if (input.checked) { selected.add(m); label.classList.add("checked"); }
         else { selected.delete(m); label.classList.remove("checked"); }
+        syncPickerLimits();
       });
       label.addEventListener("mouseenter", (e) => showTip(m, e));
       label.addEventListener("mousemove", (e) => { if (tip.classList.contains("show")) positionTip(e); });
@@ -126,55 +144,46 @@ function metric(label, value) {
   return el("span", { className: "metric" }, el("b", { textContent: value }), document.createTextNode(" " + label));
 }
 
-function stars(runId) {
-  const wrap = el("div", { className: "stars" });
+// Pick the single best answer of the trio. One winner per batch: clicking another
+// card moves the crown; clicking the current winner again clears it (batch becomes
+// undecided and drops out of the analytics). The server enforces the one-per-batch
+// rule, so here we just keep the highlight in sync across the cards.
+function winnerButton(res) {
+  const wrap = el("div", { className: "winner-wrap" });
+  const btn = el("button", {
+    className: "winner-btn", type: "button",
+    textContent: "Pick as winner", disabled: res.id == null,
+  });
   const saved = el("span", { className: "saved" });
-  let current = 0;
-  const cells = [];
-  for (let i = 1; i <= 5; i++) {
-    const s = el("span", { textContent: "★" });
-    const paint = (n) => cells.forEach((c, idx) => c.classList.toggle("on", idx < n));
-    s.addEventListener("mouseenter", () => paint(i));
-    s.addEventListener("mouseleave", () => paint(current));
-    s.addEventListener("click", async () => {
-      current = i; paint(i); saved.textContent = "saving…";
-      try {
-        const r = await fetch("/api/vote", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ run_id: runId, rating: i }),
-        });
-        saved.textContent = r.ok ? "✓ saved" : "save failed";
-      } catch { saved.textContent = "save failed"; }
-    });
-    cells.push(s); wrap.append(s);
-  }
-  wrap.append(saved);
+  btn.addEventListener("click", async () => {
+    const nowWin = !btn.classList.contains("on");
+    for (const b of document.querySelectorAll("#cards .winner-btn.on")) {
+      b.classList.remove("on"); b.textContent = "Pick as winner";
+    }
+    if (nowWin) { btn.classList.add("on"); btn.textContent = "★ Winner"; }
+    saved.textContent = "saving…";
+    try {
+      const r = await fetch("/api/winner", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: res.id, win: nowWin }),
+      });
+      saved.textContent = r.ok ? "✓ saved" : "save failed";
+    } catch { saved.textContent = "save failed"; }
+  });
+  wrap.append(btn, saved);
   return wrap;
 }
 
+// The web sources a model touched. Shown for context (which pages it read) — there's
+// no voting; quality is judged by picking the winning answer, not rating each URL.
 function sourcesBlock(sources) {
   const wrap = el("div", { className: "sources" });
-  wrap.append(el("div", { className: "sources-title", textContent: `Sources (${sources.length}) — credible?` }));
+  wrap.append(el("div", { className: "sources-title", textContent: `Sources (${sources.length})` }));
   for (const s of sources) {
     const row = el("div", { className: "source-row" });
-    const yes = el("button", { className: "src-btn yes", textContent: "✓", title: "credible" });
-    const no = el("button", { className: "src-btn no", textContent: "✗", title: "not credible" });
-    const paint = (c) => { yes.classList.toggle("on", c === true); no.classList.toggle("on", c === false); };
-    const vote = async (credible) => {
-      paint(credible);
-      try {
-        await fetch("/api/source_vote", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ source_id: s.id, credible }),
-        });
-      } catch {}
-    };
-    yes.addEventListener("click", () => vote(true));
-    no.addEventListener("click", () => vote(false));
     const link = el("a", { href: s.url, target: "_blank", rel: "noopener", textContent: s.domain || s.url, title: s.url });
     const role = el("span", { className: "src-role", textContent: s.role === "scraped" ? "scraped" : "search" });
-    row.append(yes, no, link, role);
-    if (s.credible === 1) paint(true); else if (s.credible === 0) paint(false);
+    row.append(link, role);
     wrap.append(row);
   }
   return wrap;
@@ -214,7 +223,7 @@ function card(res) {
     c.append(d);
   }
 
-  c.append(stars(res.id));
+  c.append(winnerButton(res));
   return c;
 }
 
@@ -235,7 +244,9 @@ function pendingCard(model) {
 const ACTIVE_KEY = "armchair.activeBatch";
 let polling = false;
 
-function setRunning(on) { $("#run").disabled = on; }
+// Run stays disabled while a batch is in flight AND whenever the picker isn't at
+// exactly 3, so finishing a run doesn't silently re-enable an invalid selection.
+function setRunning(on) { $("#run").disabled = on || selected.size !== MAX_MODELS; }
 
 async function pollBatch(batchId, models, rendered) {
   // rendered: Map(model -> card element). Pre-seed placeholders for any not yet drawn.
@@ -276,7 +287,7 @@ async function pollBatch(batchId, models, rendered) {
     if (state.done) {
       $("#status").textContent = state.error
         ? "Finished with errors: " + state.error
-        : "Done. Vote each answer 1–5.";
+        : "Done. Pick the best answer.";
       localStorage.removeItem(ACTIVE_KEY);
       break;
     }
@@ -290,7 +301,7 @@ async function pollBatch(batchId, models, rendered) {
 $("#run").addEventListener("click", async () => {
   const question = $("#question").value.trim();
   if (!question) { $("#status").textContent = "Enter a question."; return; }
-  if (!selected.size) { $("#status").textContent = "Select at least one model."; return; }
+  if (selected.size !== MAX_MODELS) { $("#status").textContent = `Select exactly ${MAX_MODELS} models.`; return; }
 
   const models = [...selected];
   setRunning(true);
@@ -332,6 +343,11 @@ function resumeActiveBatch() {
   }
   pollBatch(saved.batch_id, saved.models || [], rendered);
 }
+
+$("#shuffle").addEventListener("click", () => {
+  selectRandom(MAX_MODELS);
+  setModelsCollapsed(false);  // reveal the new trio so the user sees what changed
+});
 
 $("#reset").addEventListener("click", () => {
   polling = false;  // stop any in-flight poll loop so it can't re-append cards

@@ -22,12 +22,13 @@
     <div id="health" class="health" hidden></div>
     <textarea id="question" placeholder="Ask anything — research, summarization, advice, recipes, planting tips…"></textarea>
 
-    <div class="hint" id="modelsHint" style="margin-top:12px">Select models to compare (web tools are always available, the model decides when to use them):</div>
+    <div class="hint" id="modelsHint" style="margin-top:12px">Pick exactly 3 models to compare (web tools are always available, the model decides when to use them):</div>
     <div class="models" id="models"></div>
     <button type="button" class="models-bar secondary" id="modelsBar" hidden></button>
 
     <div class="toolbar">
-      <button id="run">Run</button>
+      <button id="run" disabled>Run</button>
+      <button id="shuffle" type="button" class="secondary">🎲 Shuffle 3</button>
       <button id="reset" class="secondary">Reset</button>
       <span class="hint" id="status"></span>
     </div>

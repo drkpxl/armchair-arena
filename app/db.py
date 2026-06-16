@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS runs (
   question TEXT NOT NULL,
   model TEXT NOT NULL,
   answer TEXT,
-  rating INTEGER,
+  win INTEGER NOT NULL DEFAULT 0,
   prompt_tokens INTEGER,
   completion_tokens INTEGER,
   total_tokens INTEGER,
@@ -39,10 +39,10 @@ CREATE TABLE IF NOT EXISTS sources (
   url TEXT NOT NULL,
   domain TEXT,
   role TEXT,
-  credible INTEGER,
   ts TEXT,
   FOREIGN KEY (run_id) REFERENCES runs(id)
 );
+CREATE INDEX IF NOT EXISTS idx_runs_batch ON runs(batch_id);
 """
 
 # Columns persisted from a run result dict, in order.
@@ -91,24 +91,15 @@ def insert_sources(run_id: int, ts: str, sources: list[dict[str, str]]) -> list[
             url = s["url"]
             domain = urlparse(url).netloc or None
             cur = conn.execute(
-                "INSERT INTO sources (run_id, url, domain, role, credible, ts) "
-                "VALUES (?, ?, ?, ?, NULL, ?)",
+                "INSERT INTO sources (run_id, url, domain, role, ts) "
+                "VALUES (?, ?, ?, ?, ?)",
                 (run_id, url, domain, s.get("role"), ts),
             )
             out.append({
                 "id": int(cur.lastrowid), "url": url, "domain": domain,
-                "role": s.get("role"), "credible": None,
+                "role": s.get("role"),
             })
     return out
-
-
-def set_source_credible(source_id: int, credible: bool) -> bool:
-    with _db() as conn:
-        cur = conn.execute(
-            "UPDATE sources SET credible = ? WHERE id = ?",
-            (1 if credible else 0, source_id),
-        )
-        return cur.rowcount > 0
 
 
 def all_sources() -> list[dict[str, Any]]:
@@ -120,35 +111,73 @@ def all_sources() -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
-def set_rating(run_id: int, rating: int) -> bool:
+def set_winner(run_id: int, win: bool = True) -> bool:
+    """Mark one run as the batch winner (or clear it).
+
+    A batch has at most one winner, so we always zero the whole batch first — that
+    makes a re-pick (different card) and a clear (same card, win=False) the same code
+    path. Both statements commit atomically via the `with conn:` transaction.
+    """
     with _db() as conn:
-        cur = conn.execute(
-            "UPDATE runs SET rating = ? WHERE id = ?", (rating, run_id)
-        )
-        return cur.rowcount > 0
+        row = conn.execute(
+            "SELECT batch_id FROM runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        if row is None:
+            return False
+        conn.execute("UPDATE runs SET win = 0 WHERE batch_id = ?", (row["batch_id"],))
+        if win:
+            conn.execute("UPDATE runs SET win = 1 WHERE id = ?", (run_id,))
+        return True
 
 
 def analytics() -> list[dict[str, Any]]:
-    """Per-model aggregates across all runs."""
+    """Per-model aggregates across all runs (win-rate based).
+
+    A "decided appearance" is a run whose batch has a winner picked (SUM(win) > 0).
+    win_rate = wins / decided_appearances; NULL when a model has no decided batches.
+    Opponent-aware strength is layered on top in app/analytics.py from decided_batches().
+    """
     sql = """
+      WITH decided AS (
+        SELECT batch_id FROM runs GROUP BY batch_id HAVING SUM(win) > 0
+      )
       SELECT
-        model,
-        COUNT(*)                                         AS n,
-        COUNT(rating)                                    AS n_rated,
-        ROUND(AVG(rating), 2)                            AS avg_rating,
-        ROUND(AVG(total_tokens), 0)                      AS avg_total_tokens,
-        ROUND(AVG(completion_tokens), 0)                 AS avg_completion_tokens,
-        ROUND(AVG(tokens_per_sec), 1)                    AS avg_tokens_per_sec,
-        ROUND(AVG(wall_clock_ms), 0)                     AS avg_wall_clock_ms,
-        ROUND(AVG(tool_calls), 2)                        AS avg_tool_calls,
-        SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END) AS errors,
-        (SELECT COUNT(s.credible) FROM sources s JOIN runs r2 ON r2.id = s.run_id
-          WHERE r2.model = runs.model)                   AS source_votes,
-        (SELECT ROUND(AVG(s.credible) * 100, 0) FROM sources s JOIN runs r2 ON r2.id = s.run_id
-          WHERE r2.model = runs.model)                   AS source_credible_pct
-      FROM runs
-      GROUP BY runs.model
-      ORDER BY avg_rating DESC NULLS LAST, avg_total_tokens ASC
+        r.model,
+        COUNT(*)                                                AS n,
+        SUM(r.win)                                              AS wins,
+        SUM(CASE WHEN d.batch_id IS NOT NULL THEN 1 ELSE 0 END) AS decided,
+        ROUND(CAST(SUM(r.win) AS REAL)
+              / NULLIF(SUM(CASE WHEN d.batch_id IS NOT NULL THEN 1 ELSE 0 END), 0), 3)
+                                                                AS win_rate,
+        ROUND(AVG(r.total_tokens), 0)                           AS avg_total_tokens,
+        ROUND(AVG(r.completion_tokens), 0)                      AS avg_completion_tokens,
+        ROUND(AVG(r.tokens_per_sec), 1)                         AS avg_tokens_per_sec,
+        ROUND(AVG(r.wall_clock_ms), 0)                          AS avg_wall_clock_ms,
+        ROUND(AVG(r.tool_calls), 2)                             AS avg_tool_calls,
+        SUM(CASE WHEN r.error IS NOT NULL THEN 1 ELSE 0 END)    AS errors
+      FROM runs r
+      LEFT JOIN decided d ON d.batch_id = r.batch_id
+      GROUP BY r.model
+      ORDER BY win_rate DESC NULLS LAST, avg_total_tokens ASC
+    """
+    with _db() as conn:
+        return [dict(r) for r in conn.execute(sql).fetchall()]
+
+
+def decided_batches() -> list[dict[str, Any]]:
+    """One row per (model, win) for every batch that has a winner picked.
+
+    Errored runs are excluded so a model isn't counted as a loser in a batch it
+    crashed in; such a batch simply yields fewer pairwise comparisons.
+    """
+    sql = """
+      WITH decided AS (
+        SELECT batch_id FROM runs GROUP BY batch_id HAVING SUM(win) > 0
+      )
+      SELECT r.batch_id, r.model, r.win
+      FROM runs r
+      JOIN decided d ON d.batch_id = r.batch_id
+      WHERE r.error IS NULL
     """
     with _db() as conn:
         return [dict(r) for r in conn.execute(sql).fetchall()]

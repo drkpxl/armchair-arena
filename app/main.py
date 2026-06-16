@@ -12,8 +12,8 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import db, firecrawl, ollama, runner
-from .config import OLLAMA_HOST, STATIC_DIR
+from . import analytics, db, firecrawl, ollama, runner
+from .config import MIN_DECIDED, OLLAMA_HOST, STATIC_DIR
 
 
 @asynccontextmanager
@@ -27,17 +27,12 @@ app = FastAPI(title="Armchair Arena", lifespan=lifespan)
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1)
-    models: list[str] = Field(min_length=1)
+    models: list[str] = Field(min_length=3, max_length=3)
 
 
-class VoteRequest(BaseModel):
+class WinnerRequest(BaseModel):
     run_id: int
-    rating: int = Field(ge=1, le=5)
-
-
-class SourceVoteRequest(BaseModel):
-    source_id: int
-    credible: bool
+    win: bool = True
 
 
 @app.get("/api/health")
@@ -96,25 +91,19 @@ async def batch(batch_id: str) -> dict:
     return state
 
 
-@app.post("/api/vote")
-async def vote(req: VoteRequest) -> dict:
-    ok = await asyncio.to_thread(db.set_rating, req.run_id, req.rating)
+@app.post("/api/winner")
+async def winner(req: WinnerRequest) -> dict:
+    ok = await asyncio.to_thread(db.set_winner, req.run_id, req.win)
     if not ok:
         raise HTTPException(status_code=404, detail="run not found")
     return {"ok": True}
 
 
-@app.post("/api/source_vote")
-async def source_vote(req: SourceVoteRequest) -> dict:
-    ok = await asyncio.to_thread(db.set_source_credible, req.source_id, req.credible)
-    if not ok:
-        raise HTTPException(status_code=404, detail="source not found")
-    return {"ok": True}
-
-
 @app.get("/api/analytics")
-def get_analytics() -> dict:
-    return {"models": db.analytics()}
+async def get_analytics() -> dict:
+    agg = await asyncio.to_thread(db.analytics)
+    batches = await asyncio.to_thread(db.decided_batches)
+    return {"models": analytics.enrich(agg, batches, MIN_DECIDED)}
 
 
 @app.get("/api/runs")
@@ -127,7 +116,7 @@ def export_csv() -> Response:
     rows = db.all_runs()
     buf = io.StringIO()
     fieldnames = [
-        "id", "ts", "batch_id", "model", "question", "answer", "rating",
+        "id", "ts", "batch_id", "model", "question", "answer", "win",
         "prompt_tokens", "completion_tokens", "total_tokens",
         "total_duration_ms", "eval_duration_ms", "tokens_per_sec",
         "wall_clock_ms", "tool_calls", "tool_trace", "error",
@@ -146,7 +135,7 @@ def export_csv() -> Response:
 def export_sources_csv() -> Response:
     rows = db.all_sources()
     buf = io.StringIO()
-    fieldnames = ["id", "run_id", "ts", "model", "url", "domain", "role", "credible", "question"]
+    fieldnames = ["id", "run_id", "ts", "model", "url", "domain", "role", "question"]
     writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
     writer.writeheader()
     writer.writerows(rows)
