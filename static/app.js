@@ -110,6 +110,18 @@ async function loadModels() {
   }
 }
 
+// Collapse the (tall) model picker after a run so results aren't pushed off-screen on
+// mobile; tapping the summary bar — or Reset / a reload — brings it back.
+function setModelsCollapsed(collapsed) {
+  $("#modelsHint").hidden = collapsed;
+  $("#models").hidden = collapsed;
+  const bar = $("#modelsBar");
+  bar.hidden = !collapsed;
+  if (collapsed) bar.textContent = `▸ ${selected.size} model${selected.size === 1 ? "" : "s"} selected — tap to edit`;
+}
+
+$("#modelsBar").addEventListener("click", () => setModelsCollapsed(false));
+
 function metric(label, value) {
   return el("span", { className: "metric" }, el("b", { textContent: value }), document.createTextNode(" " + label));
 }
@@ -292,6 +304,7 @@ $("#run").addEventListener("click", async () => {
     if (!r.ok) throw new Error(await r.text());
     const { batch_id } = await r.json();
     localStorage.setItem(ACTIVE_KEY, JSON.stringify({ batch_id, models }));
+    setModelsCollapsed(true);
     pollBatch(batch_id, models, new Map());
   } catch (e) {
     $("#status").textContent = "Failed to start: " + e;
@@ -327,6 +340,7 @@ $("#reset").addEventListener("click", () => {
   $("#cards").textContent = "";
   $("#status").textContent = "";
   setRunning(false);
+  setModelsCollapsed(false);
   hideTip();
   selectRandom(3);
   $("#question").focus();

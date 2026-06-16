@@ -79,6 +79,14 @@ button.secondary { background: var(--panel-2); color: var(--text); border: 2px s
 .models label:hover { border-color: var(--accent); }
 .models label.checked { border-color: var(--accent2); color: var(--accent2); box-shadow: 3px 3px 0 0 var(--accent2); }
 .models input { display: none; }
+/* `.models{display:flex}` outranks the UA [hidden]{display:none}, so the picker wouldn't
+   actually hide when collapsed without this. */
+.models[hidden] { display: none; }
+.models-bar {
+  margin: 12px 0; text-align: left; text-transform: none; letter-spacing: 0;
+  font-weight: 700; color: var(--muted); width: 100%;
+}
+.models-bar:hover { color: var(--accent); border-color: var(--accent); background: var(--panel-2); }
 
 #tooltip {
   position: fixed; z-index: 10000; max-width: 320px;
@@ -169,13 +177,6 @@ tr:hover td { background: var(--panel-2); }
 }
 @keyframes blink { to { visibility: hidden; } }
 
-/* iOS Safari auto-zooms (and crops) when you focus a form control whose font-size is
-   under 16px. Our controls inherit 14px, so bump them to 16px on touch devices — this
-   suppresses the zoom without disabling pinch-zoom (which a maximum-scale meta would). */
-@media (pointer: coarse) {
-  textarea, input, select { font-size: 16px; }
-}
-
 /* ---- Mobile / narrow screens ----
    The default card + chart grids use minmax(360px/420px, 1fr); on a phone the container
    is narrower than that minimum, which forces a track wider than the viewport and makes
@@ -185,22 +186,34 @@ tr:hover td { background: var(--panel-2); }
   .cards, .chart-grid { grid-template-columns: 1fr; }
   .chart-box.wide { grid-column: auto; }
   .scatter-wrap { height: 360px; }
+
+  /* iOS Safari auto-zooms (and crops) when you focus a control whose font-size is under
+     16px — ours inherit 14px. Bump to 16px at phone widths (reliable, unlike a
+     pointer:coarse query). The larger text needs more room or the multi-line placeholder
+     clips, so grow the textarea to fit it. */
+  textarea, input, select { font-size: 16px; }
+  textarea { min-height: 112px; line-height: 1.5; }
 }
 
 @media (max-width: 560px) {
-  header { padding: 12px 14px; gap: 10px; flex-wrap: wrap; }
-  header h1 { font-size: 12px; }
-  header nav { gap: 12px; }
+  header { padding: 12px 14px; gap: 8px 12px; flex-wrap: wrap; }
+  header h1 { font-size: 12px; flex: 1 1 auto; }
+  header nav { margin-left: 0; gap: 14px; }
   header nav a { font-size: 11px; }
 
   /* Smaller, tighter model pills so they don't dominate the viewport. */
   .models { gap: 6px; }
-  .models label { padding: 5px 8px; font-size: 10px; letter-spacing: 0; gap: 5px; }
+  .models label { padding: 6px 9px; font-size: 11px; letter-spacing: 0; gap: 6px; }
+
+  .toolbar { flex-wrap: wrap; gap: 8px; }
+  .toolbar button { flex: 1 1 0; min-width: 110px; }
+  .toolbar .hint { flex-basis: 100%; }
 
   .card { padding: 13px; }
-  .answer { max-height: 50vh; padding: 11px; }
-  .toolbar { flex-wrap: wrap; }
-  .toolbar button { flex: 1 1 auto; }
+  .card h3 { font-size: 14px; }
+  .answer { max-height: 60vh; padding: 11px; }
+  .metrics { gap: 5px; }
+
   #tooltip { max-width: 90vw; }
   table { font-size: 11px; }
   th, td { padding: 6px 7px; }
