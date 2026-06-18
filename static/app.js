@@ -403,6 +403,10 @@ async function checkHealth() {
   } catch { /* health is best-effort */ }
 }
 
+// The model manager (manage.js) fires this after the roster changes so the picker and the
+// health banner reflect the new set without a full reload.
+window.addEventListener("roster-saved", () => { loadModels(); checkHealth(); });
+
 checkHealth();
 loadModels();
 resumeActiveBatch();  // recover an in-flight comparison after a reload / phone killing the page

@@ -6,6 +6,7 @@ block the event loop while models run concurrently.
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from typing import Any
@@ -43,7 +44,17 @@ CREATE TABLE IF NOT EXISTS sources (
   FOREIGN KEY (run_id) REFERENCES runs(id)
 );
 CREATE INDEX IF NOT EXISTS idx_runs_batch ON runs(batch_id);
+-- Server-side, single-user app config (model roster + backends), one JSON doc per key.
+-- This is what makes the roster persist across sessions and browsers (not localStorage).
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 """
+
+# The always-present cloud backend. Its host/key are NOT stored here — they resolve from
+# config.OLLAMA_HOST/OLLAMA_API_KEY at runtime, so the secret stays in .env.
+CLOUD_BACKEND_ID = "cloud"
 
 # Columns persisted from a run result dict, in order.
 _RUN_COLS = [
@@ -70,6 +81,61 @@ def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _db() as conn:
         conn.executescript(SCHEMA)
+
+
+# ---- app config (model roster + backends) ----
+# Cached in-process so backend_for() isn't a DB read on every model turn; invalidated on save.
+_config_cache: dict[str, Any] | None = None
+
+
+def _default_config() -> dict[str, Any]:
+    return {
+        "backends": [{"id": CLOUD_BACKEND_ID, "label": "Ollama Cloud", "builtin": True}],
+        "roster": [],
+    }
+
+
+def _ensure_builtin(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Guarantee the cloud backend is always present and marked builtin, whatever was saved."""
+    backends = [b for b in cfg.get("backends", []) if b.get("id") != CLOUD_BACKEND_ID]
+    cfg["backends"] = [
+        {"id": CLOUD_BACKEND_ID, "label": "Ollama Cloud", "builtin": True}
+    ] + backends
+    cfg.setdefault("roster", [])
+    return cfg
+
+
+def get_config() -> dict[str, Any]:
+    """The persisted roster/backends config (cloud backend always present)."""
+    global _config_cache
+    if _config_cache is None:
+        with _db() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = 'config'"
+            ).fetchone()
+        if row:
+            try:
+                cfg = json.loads(row["value"])
+            except (ValueError, TypeError):
+                cfg = _default_config()
+        else:
+            cfg = _default_config()
+        _config_cache = _ensure_builtin(cfg)
+    return _config_cache
+
+
+def save_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Persist the roster/backends config and refresh the cache. Returns the stored doc."""
+    global _config_cache
+    cfg = _ensure_builtin(cfg)
+    with _db() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('config', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (json.dumps(cfg),),
+        )
+    _config_cache = cfg
+    return cfg
 
 
 def insert_run(result: dict[str, Any]) -> int:

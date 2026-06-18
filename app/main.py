@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import analytics, db, firecrawl, ollama, runner
-from .config import MIN_DECIDED, OLLAMA_HOST, STATIC_DIR
+from .config import MIN_DECIDED, OLLAMA_API_KEY, STATIC_DIR
 
 
 @asynccontextmanager
@@ -35,31 +35,139 @@ class WinnerRequest(BaseModel):
     win: bool = True
 
 
+class Backend(BaseModel):
+    id: str
+    label: str
+    host: str | None = None
+    api_key: str | None = None
+    builtin: bool = False
+
+
+class RosterEntry(BaseModel):
+    model: str
+    backend_id: str
+
+
+class RosterRequest(BaseModel):
+    backends: list[Backend] = Field(default_factory=list)
+    roster: list[RosterEntry] = Field(default_factory=list)
+
+
+class ProbeRequest(BaseModel):
+    backend_id: str | None = None
+    host: str | None = None
+    api_key: str | None = None
+
+
+def _public_config() -> dict:
+    """The roster/backends config for the client — api keys are never sent (only has_key)."""
+    cfg = db.get_config()
+    backends = []
+    for b in cfg["backends"]:
+        if b.get("builtin") or b["id"] == db.CLOUD_BACKEND_ID:
+            host, _ = ollama.resolve_backend(b["id"])
+            backends.append({"id": b["id"], "label": b.get("label", "Ollama Cloud"),
+                             "host": host, "builtin": True, "has_key": bool(OLLAMA_API_KEY)})
+        else:
+            backends.append({"id": b["id"], "label": b.get("label", b["id"]),
+                             "host": b.get("host"), "builtin": False,
+                             "has_key": bool(b.get("api_key"))})
+    return {"backends": backends, "roster": cfg["roster"], "onboarded": bool(cfg["roster"])}
+
+
 @app.get("/api/health")
 async def health() -> dict:
-    """Setup verification: are Ollama and Firecrawl reachable? Web tools degrade gracefully."""
+    """Setup verification: is each backend the roster uses reachable, plus Firecrawl? Web
+    tools degrade gracefully. The roster can span several Ollama hosts, so ping each."""
     out: dict = {}
+    backends: list[dict] = []
     async with httpx.AsyncClient(timeout=8) as client:
-        try:
-            models = await ollama.list_models(client)
-            out["ollama"] = {"ok": True, "host": OLLAMA_HOST, "models": len(models)}
-        except Exception as exc:
-            out["ollama"] = {"ok": False, "host": OLLAMA_HOST, "error": f"{type(exc).__name__}: {exc}"}
+        for b in ollama.backends_in_use():
+            entry = {"id": b["id"], "label": b["label"], "host": b["host"]}
+            try:
+                resp = await client.get(f"{b['host'].rstrip('/')}/api/tags", headers=b["headers"])
+                resp.raise_for_status()
+                entry["ok"] = True
+            except Exception as exc:
+                entry["ok"] = False
+                entry["error"] = f"{type(exc).__name__}: {exc}"
+            backends.append(entry)
         out["firecrawl"] = await firecrawl.search_health(client)
+    out["backends"] = backends
+    # Summarize into the legacy `ollama` field the frontend banner reads (static/app.js).
+    failed = [b for b in backends if not b["ok"]]
+    out["ollama"] = {
+        "ok": not failed,
+        "host": ", ".join(b["host"] for b in backends),
+        "error": "; ".join(f"{b['label']}: {b['error']}" for b in failed) or None,
+    }
     out["web_tools"] = out["firecrawl"]["search_ok"]
-    out["ok"] = out["ollama"]["ok"]  # app is usable as long as a model backend works
+    out["ok"] = out["ollama"]["ok"]  # all backends the roster needs must respond
     return out
 
 
 @app.get("/api/models")
 async def get_models() -> dict:
-    """All models available from the configured Ollama host (/api/tags)."""
+    """The user's saved roster — the models the picker offers (keeps the {models,error} shape)."""
+    cfg = await asyncio.to_thread(db.get_config)
+    return {"models": [r["model"] for r in cfg["roster"]], "error": None}
+
+
+@app.get("/api/roster")
+async def get_roster() -> dict:
+    """Full roster + backends config for the model manager (no api keys, only has_key)."""
+    return await asyncio.to_thread(_public_config)
+
+
+@app.post("/api/roster")
+async def set_roster(req: RosterRequest) -> dict:
+    """Persist the model roster + backends. Validates unique model names and known backends."""
+    names = [r.model for r in req.roster]
+    dupes = sorted({n for n in names if names.count(n) > 1})
+    if dupes:
+        raise HTTPException(status_code=400, detail=f"Duplicate model names not allowed: {dupes}")
+    backend_ids = {b.id for b in req.backends} | {db.CLOUD_BACKEND_ID}
+    bad = sorted({r.model for r in req.roster if r.backend_id not in backend_ids})
+    if bad:
+        raise HTTPException(status_code=400, detail=f"Roster references an unknown backend for: {bad}")
+    # Preserve stored api keys for existing backends when the client (which never receives
+    # keys) re-saves without re-entering them.
+    existing_keys = {b["id"]: b.get("api_key", "") for b in db.get_config()["backends"]}
+    stored_backends = []
+    for b in req.backends:
+        if b.builtin or b.id == db.CLOUD_BACKEND_ID:
+            continue  # cloud is re-added from .env by db._ensure_builtin
+        if not b.host:
+            raise HTTPException(status_code=400, detail=f"Backend {b.label!r} needs a host URL")
+        stored_backends.append({
+            "id": b.id, "label": b.label, "host": b.host.rstrip("/"),
+            "api_key": b.api_key if b.api_key else existing_keys.get(b.id, ""),
+        })
+    cfg = {
+        "backends": stored_backends,
+        "roster": [{"model": r.model, "backend_id": r.backend_id} for r in req.roster],
+    }
+    await asyncio.to_thread(db.save_config, cfg)
+    return _public_config()
+
+
+@app.post("/api/probe")
+async def probe(req: ProbeRequest) -> dict:
+    """List the models a backend serves (age-filtered), for the manager's add/connect flow.
+    Accepts a saved backend_id, or a raw host (+optional key) for a not-yet-saved server."""
+    if req.backend_id:
+        host, headers = ollama.resolve_backend(req.backend_id)
+    elif req.host:
+        host = req.host.rstrip("/")
+        headers = {"Authorization": f"Bearer {req.api_key}"} if req.api_key else {}
+    else:
+        raise HTTPException(status_code=400, detail="host or backend_id required")
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            models = await ollama.list_models(client)
-        return {"models": models, "error": None}
+            models = await ollama.probe(client, host, headers)
+        return {"models": models, "error": None, "host": host}
     except Exception as exc:
-        return {"models": [], "error": f"{type(exc).__name__}: {exc}"}
+        return {"models": [], "error": f"{type(exc).__name__}: {exc}", "host": host}
 
 
 @app.get("/api/model_info")
@@ -79,6 +187,13 @@ async def ask(req: AskRequest) -> dict:
     Decoupling the run from this request is what lets the app survive mobile
     backgrounding — suspending the tab no longer aborts an in-flight comparison.
     """
+    roster = {r["model"] for r in db.get_config()["roster"]}
+    bad = [m for m in req.models if m not in roster]
+    if bad:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Models not in your roster: {bad}. Add them in Manage Models.",
+        )
     batch_id = runner.start_batch(req.question, req.models)
     return {"batch_id": batch_id, "models": req.models}
 

@@ -10,11 +10,9 @@ ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 
 
-def _csv_lower(name: str, default: str = "") -> list[str]:
-    """A comma-separated env var → list of stripped, lowercased, non-empty values."""
-    return [v.strip().lower() for v in os.getenv(name, default).split(",") if v.strip()]
-
-
+# OLLAMA_HOST/OLLAMA_API_KEY seed the built-in "Ollama Cloud" backend. Additional backends
+# (local/remote Ollama servers) are added at runtime via the model manager and persisted in
+# the DB — see app/db.py get_config()/save_config().
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
 FIRECRAWL_URL = os.getenv("FIRECRAWL_URL", "http://localhost:3002").rstrip("/")
@@ -22,17 +20,10 @@ FIRECRAWL_URL = os.getenv("FIRECRAWL_URL", "http://localhost:3002").rstrip("/")
 BIND_HOST = os.getenv("BIND_HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8090"))
 
-# Hide models whose last update is older than this many days (0 = show all).
+# The ONLY discovery filter: hide models whose last update is older than this many days
+# (0 = show all). Name/pattern exclusions were removed so every recent model is selectable
+# in the manager — the user curates the roster instead.
 MAX_MODEL_AGE_DAYS = int(os.getenv("MAX_MODEL_AGE_DAYS", "365"))
-
-# Hide models whose name contains any of these substrings (case-insensitive).
-# Default drops coding/developer-tuned models, which aren't this tool's use case.
-EXCLUDE_MODEL_PATTERNS = _csv_lower("EXCLUDE_MODEL_PATTERNS", "coder,code,devstral")
-
-# Hide specific models by EXACT name (case-insensitive), e.g. sunset/retired models.
-# Use this (not EXCLUDE_MODEL_PATTERNS) for exact versions — a substring like "minimax-m2"
-# would also catch minimax-m2.1/2.5/2.7.
-EXCLUDE_MODELS = set(_csv_lower("EXCLUDE_MODELS"))
 
 # Free-text locale/region context injected into the system prompt (units, "near me",
 # date format, spelling). Empty = omitted.
