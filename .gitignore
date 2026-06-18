@@ -15,6 +15,9 @@ wheels/
 # Local database (created at runtime)
 data/*.db
 
+# Runtime server log
+*.log
+
 # OS / editor cruft
 .DS_Store
 *.swp
