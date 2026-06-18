@@ -7,8 +7,11 @@ Arena** for a user. Follow it top to bottom; verify with the health check at the
 
 A small FastAPI web app that lets the user compare LLMs side-by-side on non-coding tasks: it runs
 exactly three models on one question and the user crowns the single best answer, which builds an
-opponent-aware strength ranking (Bradley-Terry / Elo) over time. It talks to **Ollama** (cloud or
-a local daemon) for models and, optionally, a self-hosted **Firecrawl** for web-research tools.
+opponent-aware strength ranking (Bradley-Terry / Elo) over time. It talks to **Ollama** for
+models — a built-in **Ollama Cloud** backend plus any local/remote Ollama servers the user adds
+in-app (each model routed to its backend) — and, optionally, a self-hosted **Firecrawl** for
+web-research tools. The user curates which models compete via an onboarding/roster screen, saved
+in the app's SQLite DB. Your job here is just the backend wiring (`.env`) + getting it running.
 
 ## Prerequisites (check, don't assume)
 
@@ -64,24 +67,30 @@ curl -s http://127.0.0.1:8090/api/health
 Success looks like:
 
 ```json
-{"ollama":{"ok":true,"host":"...","models":34},
- "firecrawl":{"url":"...","reachable":true,"search_ok":true,"results":3,"note":null},
+{"firecrawl":{"url":"...","reachable":true,"search_ok":true,"results":3},
+ "backends":[{"id":"cloud","label":"Ollama Cloud","host":"...","ok":true}],
+ "ollama":{"ok":true,"host":"...","error":null},
  "web_tools":true,"ok":true}
 ```
 
-- `ollama.ok: true` → models load; setup is functional. Confirm `models > 0`.
+- `ok: true` → every Ollama backend the roster uses is reachable; setup is functional. (`backends[]`
+  lists each one; on a fresh install that's just the built-in cloud backend until the user adds more.)
 - `web_tools: false` → Firecrawl's search isn't returning results (the `firecrawl.note` says why:
   unreachable, or reachable-but-empty). **This is OK** — tell the user web research is off and how
   to fix it; don't treat it as a failure.
-- `ok: false` → the model backend is unreachable; see troubleshooting.
+- `ok: false` → a model backend is unreachable; the failing host is in `ollama.error` and the
+  `backends[]` entry with `ok:false`. See troubleshooting.
+
+After setup, the user opens the app and an **onboarding screen** prompts them to pick their model
+roster (and optionally add a local/remote Ollama server) — there's no models-list to configure here.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | `ollama.ok: false`, 401/403 | Bad/missing `OLLAMA_API_KEY` for Ollama Cloud. Re-check the key. |
-| `ollama.ok: false`, connection refused | `OLLAMA_HOST` wrong, or local daemon not running (`ollama serve`). |
-| `models: 0` | Cloud key has no access, or no models pulled locally (`ollama pull <model>`). |
+| `ollama.ok: false`, connection refused | `OLLAMA_HOST` wrong, or local daemon not running (`ollama serve`). For a user-added server, that host is unreachable — check the URL in **⚙ Models**. |
+| Onboarding shows no models to pick | Cloud key has no access, or no models pulled locally (`ollama pull <model>`); only models updated within `MAX_MODEL_AGE_DAYS` are shown. |
 | `web_tools: false`, note "unreachable" | Firecrawl not running at `FIRECRAWL_URL`. Optional — app still works. |
 | `web_tools: false`, note "no results" | Firecrawl up but search blocked (default DuckDuckGo gets anti-bot-blocked). Configure `SEARXNG_ENDPOINT` or a search-API key in Firecrawl. |
 | Port already in use | Change `PORT` in `.env`. |
