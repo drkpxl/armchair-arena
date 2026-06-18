@@ -68,21 +68,6 @@ quality-vs-cost scatter, and a sortable run table (with CSV export).
   capabilities (tools/vision/thinking), and quantization. The only discovery filter is age
   (`MAX_MODEL_AGE_DAYS`); everything else is selectable and curated via the roster.
 
-## How it works
-
-```
-Browser ──> FastAPI app (this repo) ──> Ollama backends  /api/chat, /api/tags, /api/show
-                  │                      (Ollama Cloud + any local/remote servers you add;
-                  │                       each model routed to its own backend)
-                  ├─────────────────────> Firecrawl  /v1/search, /v1/scrape  (web tools)
-                  └─────────────────────> SQLite  (runs + sources + roster/backends config)
-```
-
-Your roster is resolved per-model at request time, so one comparison can span several Ollama
-hosts. For each question, every selected model runs an independent tool-calling loop: it may call
-`web_search`/`scrape_url`, the app runs them against Firecrawl and feeds results back, and the
-loop continues until the model gives a final answer (or hits the tool budget, at which point it's
-asked for a final answer with tools off).
 
 ## Requirements
 
@@ -157,23 +142,6 @@ systemctl --user enable --now armchair-arena
 loginctl enable-linger "$USER"   # survive logout/reboot
 ```
 
-## API
-
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/health` | Backend status: each Ollama backend the roster uses + a Firecrawl search canary (`web_tools` = search actually works). |
-| `GET` | `/api/models` | The saved roster — the models the picker offers. |
-| `GET` | `/api/roster` | Full roster + backends config for the manager (`onboarded`, `has_key`; API keys never returned). |
-| `POST` | `/api/roster` | `{backends[], roster[]}` → persist the roster. Validates unique model names + known backends. |
-| `POST` | `/api/probe` | `{backend_id}` or `{host, api_key}` → list a backend's models (age-filtered) for the manager. |
-| `GET` | `/api/model_info?name=` | Metadata for one model (tooltip; routed to its backend). |
-| `POST` | `/api/ask` | `{question, models[]}` (**exactly 3, in the roster**) → start a batch; returns `batch_id`. |
-| `GET` | `/api/batch/{id}` | Poll a running batch for answers + metrics + sources. |
-| `POST` | `/api/winner` | `{run_id, win}` → mark that run the batch winner (`win:false` clears it). |
-| `GET` | `/api/analytics` | Per-model strength (Elo), win-rate + 95% CI, and cost/speed aggregates. |
-| `GET` | `/api/runs` | All runs (raw). |
-| `GET` | `/api/export.csv` | Runs CSV. |
-| `GET` | `/api/export_sources.csv` | Sources CSV. |
 
 ## Data
 
