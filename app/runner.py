@@ -64,6 +64,32 @@ def _final_answer(msg: dict[str, Any]) -> str:
     return (msg.get("content") or "").strip() or (msg.get("thinking") or "")
 
 
+def _is_tools_unsupported(exc: httpx.HTTPStatusError) -> bool:
+    """True when Ollama rejected the request because the model can't use tools.
+    Native /api/chat returns HTTP 400 with a body like '<model> does not support tools'."""
+    resp = exc.response
+    return resp is not None and resp.status_code == 400 and "support tools" in resp.text.lower()
+
+
+async def _chat(
+    client: httpx.AsyncClient, model: str, messages: list[dict[str, Any]],
+    tool_schemas: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """One chat turn that degrades gracefully when a model lacks tool support.
+
+    Capability detection (ollama.supports_tools) catches most non-tool models up front,
+    but a backend may not report capabilities, so this is the safety net: if a turn 400s
+    with 'does not support tools', drop the tools and retry. Returns (response, schemas)
+    with the schemas the caller should keep using for the rest of the loop.
+    """
+    try:
+        return await ollama.chat(client, model, messages, tool_schemas), tool_schemas
+    except httpx.HTTPStatusError as exc:
+        if not tool_schemas or not _is_tools_unsupported(exc):
+            raise
+        return await ollama.chat(client, model, messages, []), []
+
+
 async def run_model(
     question: str,
     model: str,
@@ -75,11 +101,17 @@ async def run_model(
     """Run one model through the tool loop. Returns a persisted run dict (with id).
 
     When enable_tools is False (e.g. Firecrawl unreachable), the model answers directly
-    from its own knowledge instead of being offered web tools.
+    from its own knowledge instead of being offered web tools. Tools are also withheld
+    from models that don't support them (e.g. Gemma), which otherwise 400 on /api/chat —
+    those models simply answer directly rather than erroring out.
     """
     tool_schemas = tools.TOOLS if enable_tools else []
+    if tool_schemas and await ollama.supports_tools(ollama_client, model) is False:
+        tool_schemas = []
+    # Keep the system prompt honest: only advertise web tools when this model is actually
+    # offered them, so a non-tool model isn't told to call tools it doesn't have.
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": _system_prompt(enable_tools)},
+        {"role": "system", "content": _system_prompt(bool(tool_schemas))},
         {"role": "user", "content": question},
     ]
     prompt_tokens = completion_tokens = 0
@@ -92,7 +124,7 @@ async def run_model(
     wall_start = time.perf_counter()
     try:
         for _ in range(MAX_TOOL_ITERS):
-            resp = await ollama.chat(ollama_client, model, messages, tool_schemas)
+            resp, tool_schemas = await _chat(ollama_client, model, messages, tool_schemas)
             p, c, td, ed = _usage(resp)
             prompt_tokens += p
             completion_tokens += c

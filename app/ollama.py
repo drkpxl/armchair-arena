@@ -115,6 +115,37 @@ async def probe(
     return sorted(m["name"] for m in models)
 
 
+# model name -> capabilities list from /api/show, cached for the process. Capabilities are
+# a static property of a model, so one lookup per model is enough; this keeps the per-run
+# tool-support check (see supports_tools) from re-hitting /api/show on every batch.
+_caps_cache: dict[str, list[str]] = {}
+
+
+async def capabilities(client: httpx.AsyncClient, model: str) -> list[str]:
+    """Model capabilities (e.g. 'completion', 'tools', 'vision') from /api/show, cached.
+    Returns [] if the backend can't be reached or doesn't report them."""
+    if model in _caps_cache:
+        return _caps_cache[model]
+    try:
+        host, headers = backend_for(model)
+        resp = await client.post(f"{host}/api/show", json={"model": model}, headers=headers)
+        resp.raise_for_status()
+        caps = resp.json().get("capabilities") or []
+    except Exception:
+        caps = []
+    _caps_cache[model] = caps
+    return caps
+
+
+async def supports_tools(client: httpx.AsyncClient, model: str) -> bool | None:
+    """Whether a model can use tools. True/False when /api/show reports capabilities,
+    None when they're unknown (empty/unreadable) so the caller can fall back to trying."""
+    caps = await capabilities(client, model)
+    if not caps:
+        return None
+    return "tools" in caps
+
+
 async def chat(
     client: httpx.AsyncClient,
     model: str,
