@@ -102,8 +102,8 @@ async def run_model(
 
     When enable_tools is False (e.g. Firecrawl unreachable), the model answers directly
     from its own knowledge instead of being offered web tools. Tools are also withheld
-    from models that don't support them (e.g. Gemma), which otherwise 400 on /api/chat —
-    those models simply answer directly rather than erroring out.
+    from models whose template can't use them, which otherwise 400 on /api/chat — those
+    models simply answer directly rather than erroring out.
     """
     tool_schemas = tools.TOOLS if enable_tools else []
     if tool_schemas and await ollama.supports_tools(ollama_client, model) is False:
